@@ -1,0 +1,386 @@
+<!doctype html>
+<html>
+<head><title>Live map</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;overflow:hidden;background:#1a1a2e;}
+#map{position:fixed;inset:0;width:100vw;height:100vh;}
+
+/* Pulsing dot marker */
+.pulse-dot{
+  position:relative;
+  width:18px;height:18px;
+}
+.pulse-dot-inner{
+  position:absolute;
+  top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  width:14px;height:14px;
+  background:rgba(66,133,244,1);
+  border:2.5px solid rgba(255,255,255,0.9);
+  border-radius:50%;
+  box-shadow:0 0 8px rgba(66,133,244,0.8);
+  z-index:2;
+}
+.pulse-dot-ring{
+  position:absolute;
+  top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  width:14px;height:14px;
+  border-radius:50%;
+  background:rgba(66,133,244,0.4);
+  animation:pulseRing 2s ease-out infinite;
+  z-index:1;
+}
+@keyframes pulseRing{
+  0%{transform:translate(-50%,-50%) scale(1);opacity:0.8;}
+  100%{transform:translate(-50%,-50%) scale(3.5);opacity:0;}
+}
+
+/* Accuracy circle override */
+.leaflet-accuracy-circle{
+  stroke:rgba(66,133,244,0.35);
+  stroke-width:1;
+  fill:rgba(66,133,244,0.07);
+}
+
+/* Hide Leaflet attribution for wallpaper feel (keep OSM credit in spirit) */
+.leaflet-control-attribution{
+  display:none!important;
+}
+.leaflet-control-zoom{
+  display:none!important;
+}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<script>
+(function(){
+'use strict';
+
+/* ── helpers ── */
+function log(m){try{if(window.iappyx)iappyx.log('[LiveMap] '+m);}catch(e){}}
+
+/* ── inline Leaflet (minified subset via data URI workaround is too large,
+      so we build a tiny canvas-tile map engine ourselves without CDN) ── */
+
+/* Since we cannot load external resources (no <script src>, no fetch),
+   we implement a fully self-contained slippy-map renderer using Canvas 2D.
+   Tiles are fetched via XHR as blobs and painted to the canvas.           */
+
+const canvas = document.createElement('canvas');
+canvas.id = 'map';
+canvas.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;display:block;';
+document.getElementById('map').replaceWith(canvas);
+const ctx = canvas.getContext('2d');
+
+/* ── map state (hoisted above resize() to avoid TDZ on `dirty`) ── */
+let zoom       = 15;
+const TILE     = 256;
+let centerLat  = 51.505;
+let centerLon  = -0.09;
+let targetLat  = centerLat;
+let targetLon  = centerLon;
+let hasGPS     = false;
+let userAccuracy = 0;          // metres
+let visible    = true;
+let dirty      = true;
+
+/* ── resize ── */
+function resize(){
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+  dirty = true;
+}
+resize();
+window.addEventListener('resize', resize);
+
+/* ── tile cache ── */
+const tileCache   = {};        // key → {img, ready}
+const MAX_CACHE   = 180;
+let   cacheKeys   = [];
+
+/* ── projection helpers ── */
+function lat2y(lat, z){
+  const s = Math.sin(lat * Math.PI / 180);
+  const n = Math.pow(2, z);
+  return (0.5 - Math.log((1+s)/(1-s))/(4*Math.PI)) * n;
+}
+function lon2x(lon, z){
+  return (lon + 180) / 360 * Math.pow(2, z);
+}
+function tileXY(lat, lon, z){
+  return { tx: Math.floor(lon2x(lon,z)), ty: Math.floor(lat2y(lat,z)) };
+}
+
+/* ── tile URL (CartoDB Dark Matter — no API key needed) ── */
+const SERVERS = ['a','b','c'];
+let   serverIdx = 0;
+function tileURL(z, x, y){
+  const s = SERVERS[serverIdx++ % 3];
+  // CartoDB Basemaps – Dark Matter (free, no key)
+  return `https://${s}.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`;
+}
+
+/* ── fetch tile as ImageBitmap via XMLHttpRequest (blob) ── */
+function loadTile(key, z, x, y){
+  if(tileCache[key]) return;
+  const entry = {img:null, ready:false, error:false};
+  tileCache[key] = entry;
+  cacheKeys.push(key);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('GET', tileURL(z,x,y), true);
+  xhr.responseType = 'blob';
+  xhr.timeout = 10000;
+  xhr.onload = function(){
+    if(xhr.status === 200 || xhr.status === 0){
+      const url = URL.createObjectURL(xhr.response);
+      const img = new Image();
+      img.onload = function(){
+        entry.img   = img;
+        entry.ready = true;
+        URL.revokeObjectURL(url);
+        dirty = true;
+        pruneCache();
+      };
+      img.onerror = function(){ entry.error=true; };
+      img.src = url;
+    } else { entry.error = true; }
+  };
+  xhr.onerror   = function(){ entry.error = true; };
+  xhr.ontimeout = function(){ entry.error = true; };
+  xhr.send();
+}
+
+function pruneCache(){
+  if(cacheKeys.length <= MAX_CACHE) return;
+  const remove = cacheKeys.splice(0, cacheKeys.length - MAX_CACHE);
+  remove.forEach(k=>{ delete tileCache[k]; });
+}
+
+/* ── draw ── */
+function draw(){
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0,0,W,H);
+
+  /* fractional tile coordinates of center */
+  const cx = lon2x(centerLon, zoom);   // e.g. 32123.45
+  const cy = lat2y(centerLat, zoom);
+
+  /* pixel offset of the top-left of the canvas relative to tile origin */
+  const originPxX = cx * TILE - W/2;
+  const originPxY = cy * TILE - H/2;
+
+  const tileMinX = Math.floor(originPxX / TILE) - 1;
+  const tileMinY = Math.floor(originPxY / TILE) - 1;
+  const tileMaxX = Math.ceil((originPxX + W) / TILE) + 1;
+  const tileMaxY = Math.ceil((originPxY + H) / TILE) + 1;
+  const maxT     = Math.pow(2, zoom);
+
+  for(let ty = tileMinY; ty <= tileMaxY; ty++){
+    for(let tx = tileMinX; tx <= tileMaxX; tx++){
+      const wtx = ((tx % maxT) + maxT) % maxT;
+      const wty = ((ty % maxT) + maxT) % maxT;
+      const key = `${zoom}/${wtx}/${wty}`;
+
+      const px = Math.round(tx * TILE - originPxX);
+      const py = Math.round(ty * TILE - originPxY);
+
+      if(!tileCache[key]){
+        loadTile(key, zoom, wtx, wty);
+      }
+      const entry = tileCache[key];
+      if(entry && entry.ready){
+        ctx.drawImage(entry.img, px, py, TILE, TILE);
+      } else {
+        /* placeholder dark tile */
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(px, py, TILE, TILE);
+        ctx.strokeStyle = '#252540';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(px, py, TILE, TILE);
+      }
+    }
+  }
+
+  /* ── user location dot ── */
+  if(hasGPS){
+    /* screen position of user */
+    const ux = (lon2x(targetLon, zoom) - cx) * TILE + W/2;
+    const uy = (lat2y(targetLat, zoom) - cy) * TILE + H/2;
+
+    /* accuracy radius in pixels */
+    if(userAccuracy > 0){
+      const metersPerPx = (156543.03392 * Math.cos(targetLat * Math.PI/180)) / Math.pow(2, zoom);
+      const accR = (userAccuracy / metersPerPx);
+      if(accR > 8 && accR < W){
+        ctx.beginPath();
+        ctx.arc(ux, uy, accR, 0, Math.PI*2);
+        ctx.fillStyle   = 'rgba(66,133,244,0.10)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(66,133,244,0.30)';
+        ctx.lineWidth   = 1.2;
+        ctx.stroke();
+      }
+    }
+
+    /* animated pulse ring */
+    const now   = performance.now() / 1000;
+    const phase = (now % 2) / 2;           // 0..1 over 2s
+    const ringR = 7 + phase * 18;
+    const alpha = (1 - phase) * 0.6;
+    ctx.beginPath();
+    ctx.arc(ux, uy, ringR, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(66,133,244,${alpha.toFixed(3)})`;
+    ctx.fill();
+
+    /* solid dot */
+    ctx.beginPath();
+    ctx.arc(ux, uy, 8, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(66,133,244,1)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.90)';
+    ctx.lineWidth   = 2.5;
+    ctx.stroke();
+
+    /* inner glint */
+    ctx.beginPath();
+    ctx.arc(ux-2, uy-2, 2.5, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.fill();
+  } else {
+    /* waiting for GPS — show subtle message */
+    ctx.font      = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(180,180,200,0.55)';
+    ctx.fillText('Locating…', W/2, H - 40);
+  }
+}
+
+/* ── smooth pan interpolation ── */
+const PAN_SPEED = 0.06;   // lerp factor per frame (~60fps)
+function lerp(a,b,t){ return a + (b-a)*t; }
+
+/* ── animation loop ── */
+let lastPulsePhase = 0;
+function tick(){
+  requestAnimationFrame(tick);
+  if(!visible) return;
+
+  /* smooth pan toward target */
+  const dlat = targetLat - centerLat;
+  const dlon  = targetLon - centerLon;
+  if(Math.abs(dlat) > 1e-9 || Math.abs(dlon) > 1e-9){
+    centerLat = lerp(centerLat, targetLat, PAN_SPEED);
+    centerLon  = lerp(centerLon,  targetLon,  PAN_SPEED);
+    dirty = true;
+  }
+
+  /* always redraw for pulse animation */
+  if(hasGPS) dirty = true;
+
+  if(dirty){
+    draw();
+    dirty = false;
+  }
+}
+
+/* ── GPS polling via iappyx ── */
+let watchId = null;
+
+function startGPS(){
+  if(!window.iappyxLocation || !window.iappyx || !iappyx.cb){
+    log('iappyx bridge unavailable, using demo path');
+    startDemoPath();
+    return;
+  }
+  /* Real bridge has only getLocation(cbId). watchPosition / getCurrentPosition
+     don't exist — those were Web-standard names the AI invented. Poll
+     getLocation every 3s via the iappyx.cb Promise helper. */
+  async function poll(){
+    let r;
+    try {
+      r = await iappyx.cb(id => iappyxLocation.getLocation(id));
+    } catch(e) {
+      log('getLocation threw: '+e);
+      startDemoPath();
+      return;
+    }
+    if (!r || !r.ok) {
+      log('getLocation error: '+(r ? r.error : 'no result'));
+      startDemoPath();
+      return;
+    }
+    onPosition(r.lat, r.lon, r.accuracy||0);
+    setTimeout(poll, 3000);
+  }
+  poll();
+}
+
+function onPosition(lat, lon, acc){
+  if(typeof lat!=='number'||typeof lon!=='number'||isNaN(lat)||isNaN(lon)) return;
+  targetLat    = lat;
+  targetLon    = lon;
+  userAccuracy = acc||0;
+  if(!hasGPS){
+    /* first fix — snap immediately */
+    centerLat = lat;
+    centerLon  = lon;
+    hasGPS    = true;
+    log(`First GPS fix: ${lat.toFixed(5)}, ${lon.toFixed(5)}`);
+  }
+  dirty = true;
+}
+
+/* ── demo path (no GPS permission) ── */
+function startDemoPath(){
+  log('Demo path active (London area)');
+  /* walk along a synthetic circular route */
+  const baseLat = 51.5074, baseLon = -0.1278, R = 0.004;
+  let angle = 0;
+  targetLat = baseLat + R;
+  targetLon = baseLon;
+  centerLat = targetLat;
+  centerLon  = targetLon;
+  hasGPS    = true;
+  setInterval(function(){
+    angle += 0.003;
+    onPosition(
+      baseLat + R * Math.cos(angle),
+      baseLon + R * Math.sin(angle) * 1.4,
+      25
+    );
+  }, 80);
+}
+
+/* ── iappyx visibility ── */
+if(window.iappyx){
+  iappyx.onVisibility = function(v){
+    visible = !!v;
+    if(visible) dirty = true;
+  };
+}
+
+/* ── page offset (parallax zoom hint) ── */
+if(window.iappyx){
+  iappyx.onPageOffset = function(x){
+    /* subtle zoom drift as user swipes pages */
+    /* no-op for now — avoid jarring changes */
+  };
+}
+
+/* ── start ── */
+startGPS();
+requestAnimationFrame(tick);
+
+log('LiveMap wallpaper started');
+
+})();
+</script>
+</body>
+</html>

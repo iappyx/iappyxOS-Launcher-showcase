@@ -1,0 +1,9 @@
+{
+  "title": "Compass",
+  "description": "A simple magnetic compass. Combines the magnetometer and accelerometer for a steady bearing. Works offline.",
+  "author": "iappyx",
+  "bridges": [
+    "sensor"
+  ],
+  "added": "2026-04-29"
+}

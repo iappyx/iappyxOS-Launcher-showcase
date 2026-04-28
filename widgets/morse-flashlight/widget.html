@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="iappyx-widget" content="keepAlive">
+<title>Morse Flashlight</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+*:focus{outline:none}
+html,body{width:100%;height:100%;font-family:-apple-system,Roboto,sans-serif;overflow:hidden}
+body{background:rgba(10,10,20,0.92);backdrop-filter:blur(14px);border-radius:16px;color:#fff}
+button{-webkit-appearance:none;background:none;border:none;color:inherit;font:inherit}
+input,textarea{-webkit-appearance:none;font:inherit}
+
+#root{display:flex;flex-direction:column;width:100%;height:100%;padding:clamp(6px,3%,14px);gap:clamp(4px,1.5%,10px)}
+
+.top-bar{display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.title{font-size:clamp(11px,3.5vmin,15px);font-weight:700;letter-spacing:1px;color:#4FC3F7;text-transform:uppercase}
+.status{font-size:clamp(9px,2.5vmin,11px);display:flex;align-items:center;gap:4px}
+.dot-ok{width:6px;height:6px;border-radius:50%;background:#69F0AE;box-shadow:0 0 6px #69F0AE;flex-shrink:0}
+.dot-err{width:6px;height:6px;border-radius:50%;background:#FF6B6B;box-shadow:0 0 6px #FF6B6B;flex-shrink:0}
+.status-text{color:#A0A0B8;font-size:clamp(9px,2.3vmin,11px)}
+
+.input-row{display:flex;gap:6px;flex-shrink:0}
+#msgInput{flex:1;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;
+  color:#fff;padding:6px 10px;font-size:clamp(11px,3vmin,14px);caret-color:#4FC3F7}
+#msgInput::placeholder{color:#555}
+
+.btn-row{display:flex;gap:6px;flex-shrink:0}
+.btn{flex:1;border-radius:8px;padding:clamp(5px,1.8vmin,9px) 4px;font-size:clamp(10px,2.8vmin,13px);
+  font-weight:700;letter-spacing:.8px;cursor:pointer;transition:opacity .1s,transform .08s}
+.btn:active{opacity:.75;transform:scale(.97)}
+.btn-flash{background:linear-gradient(135deg,#4FC3F7,#0288D1);color:#000}
+.btn-stop{background:linear-gradient(135deg,#FF6B6B,#c62828);color:#fff}
+.btn:disabled{opacity:.35;pointer-events:none}
+
+.morse-scroll{flex:1;overflow-y:auto;overflow-x:hidden;min-height:0}
+.morse-scroll::-webkit-scrollbar{width:3px}
+.morse-scroll::-webkit-scrollbar-track{background:transparent}
+.morse-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.2);border-radius:2px}
+
+.morse-line{display:flex;flex-wrap:wrap;gap:4px 6px;padding:2px 0}
+.m-word{display:flex;gap:4px;align-items:flex-end;flex-wrap:wrap}
+.m-char{display:flex;flex-direction:column;align-items:center;gap:2px}
+.m-sym{font-size:clamp(10px,3vmin,15px);letter-spacing:1px;color:#A0A0B8;font-family:monospace;transition:color .1s}
+.m-ltr{font-size:clamp(7px,2vmin,10px);color:#555;text-transform:uppercase}
+
+.m-char.active .m-sym{color:#FFD54F;text-shadow:0 0 8px #FFD54F}
+.m-char.active .m-ltr{color:#A0A0B8}
+.m-char.done .m-sym{color:#69F0AE}
+.m-char.done .m-ltr{color:#69F0AE88}
+
+.sending-label{font-size:clamp(8px,2.2vmin,10px);color:#A0A0B8;flex-shrink:0;text-align:center;min-height:14px}
+.sending-label span{color:#FFD54F;font-weight:700}
+
+.torch-glow{position:fixed;inset:0;border-radius:16px;pointer-events:none;opacity:0;
+  background:radial-gradient(ellipse at 50% 30%, rgba(255,230,100,0.18) 0%, transparent 70%);
+  transition:opacity 60ms}
+</style>
+</head><body>
+<div class="torch-glow" id="glow"></div>
+<div id="root">
+  <div class="top-bar">
+    <div class="title">⚡ Morse Flash</div>
+    <div class="status" id="statusBar">
+      <div class="dot-err" id="statusDot"></div>
+      <div class="status-text" id="statusText">Initializing…</div>
+    </div>
+  </div>
+
+  <div class="input-row">
+    <input id="msgInput" type="text" placeholder="Type message…" maxlength="120" autocomplete="off" autocorrect="off" spellcheck="false">
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-flash" id="btnFlash" disabled>FLASH</button>
+    <button class="btn btn-stop"  id="btnStop"  disabled>STOP</button>
+  </div>
+
+  <div class="sending-label" id="sendLabel"></div>
+
+  <div class="morse-scroll" id="morseDisplay"></div>
+</div>
+
+<script>
+/* ── Morse map ── */
+var MORSE = {
+  A:'.-',   B:'-...',  C:'-.-.',  D:'-..',   E:'.',
+  F:'..-.',  G:'--.',   H:'....',  I:'..',    J:'.---',
+  K:'-.-',   L:'.-..',  M:'--',    N:'-.',    O:'---',
+  P:'.--.',  Q:'--.-',  R:'.-.',   S:'...',   T:'-',
+  U:'..-',   V:'...-',  W:'.--',   X:'-..-',  Y:'-.--',
+  Z:'--..',
+  '0':'-----','1':'.----','2':'..---','3':'...--','4':'....-',
+  '5':'.....','6':'-....','7':'--...','8':'---..','9':'----.',
+  '.':'.-.-.-',',':'--..--','?':'..--..','!':'-.-.--',
+  '/':'-..-.','-':'-....-','(':'-.--.',')':"-.--.-",
+  '"':'.-..-.','@':'.--.-.','=':'-...-'
+};
+
+/* ── Timing (ms) ── */
+var DOT=150, DASH=450, SYM_GAP=150, LETTER_GAP=450, WORD_GAP=1050;
+
+/* ── State ── */
+var torchTrack=null, torchReady=false;
+var transmitting=false, stopRequested=false;
+var torchOn=false;
+
+/* ── Bridge init (required, but this widget uses no iappyx bridges) ── */
+function _initBridge(){if(typeof iappyx==='undefined'){setTimeout(_initBridge,50);return;}onReady();}
+window.addEventListener('load',function(){setTimeout(_initBridge,200)});
+
+function onReady(){
+  initTorch();
+  document.getElementById('msgInput').addEventListener('input', renderMorse);
+  document.getElementById('btnFlash').addEventListener('click', startFlash);
+  document.getElementById('btnStop').addEventListener('click', stopFlash);
+  renderMorse();
+}
+
+/* ── Torch init ── */
+function initTorch(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    setStatus(false,'Not supported'); return;
+  }
+  navigator.mediaDevices.getUserMedia({video:{facingMode:{exact:'environment'}}})
+    .catch(function(){
+      return navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    })
+    .then(function(stream){
+      var track=stream.getVideoTracks()[0];
+      if(!track){setStatus(false,'No camera track');return;}
+      /* test torch support */
+      var caps=track.getCapabilities?track.getCapabilities():{};
+      if(!caps.torch){
+        /* some devices don't advertise capability but support it anyway — try */
+        torchTrack=track;
+        track.applyConstraints({advanced:[{torch:true}]})
+          .then(function(){
+            track.applyConstraints({advanced:[{torch:false}]});
+            torchReady=true; setStatus(true,'Torch ready ✓');
+          })
+          .catch(function(){ setStatus(false,'Torch unavailable ✗'); });
+        return;
+      }
+      torchTrack=track;
+      torchReady=true; setStatus(true,'Torch ready ✓');
+    })
+    .catch(function(e){
+      setStatus(false,'Camera denied');
+    });
+}
+
+function setStatus(ok,msg){
+  torchReady=ok;
+  document.getElementById('statusDot').className=ok?'dot-ok':'dot-err';
+  document.getElementById('statusText').textContent=msg;
+  document.getElementById('btnFlash').disabled=!ok;
+}
+
+/* ── Torch on/off ── */
+function setTorch(on){
+  if(!torchTrack||torchOn===on)return Promise.resolve();
+  torchOn=on;
+  document.getElementById('glow').style.opacity=on?'1':'0';
+  return torchTrack.applyConstraints({advanced:[{torch:on}]}).catch(function(){});
+}
+
+/* ── Morse render ── */
+function textToTokens(text){
+  /* returns array of {type:'letter'|'space', char, sym} */
+  var tokens=[];
+  var up=text.toUpperCase();
+  for(var i=0;i<up.length;i++){
+    var c=up[i];
+    if(c===' '){tokens.push({type:'space'});continue;}
+    if(MORSE[c])tokens.push({type:'letter',char:c,sym:MORSE[c]});
+  }
+  return tokens;
+}
+
+function renderMorse(){
+  var text=document.getElementById('msgInput').value;
+  var tokens=textToTokens(text);
+  var display=document.getElementById('morseDisplay');
+  if(!tokens.length){display.innerHTML='<div style="color:#555;font-size:11px;padding:4px">Morse code will appear here</div>';return;}
+
+  /* Group into words */
+  var words=[], cur=[];
+  tokens.forEach(function(t){
+    if(t.type==='space'){if(cur.length){words.push(cur);cur=[];} }
+    else cur.push(t);
+  });
+  if(cur.length)words.push(cur);
+
+  var html='<div class="morse-line">';
+  var idx=0;
+  words.forEach(function(word,wi){
+    html+='<div class="m-word">';
+    word.forEach(function(t){
+      html+='<div class="m-char" id="mc'+idx+'">'
+           +'<div class="m-sym">'+t.sym+'</div>'
+           +'<div class="m-ltr">'+t.char+'</div>'
+           +'</div>';
+      t.idx=idx; idx++;
+    });
+    html+='</div>';
+    if(wi<words.length-1)html+='<div style="color:#333;font-size:10px;align-self:center">╱</div>';
+  });
+  html+='</div>';
+  display.innerHTML=html;
+}
+
+/* ── Transmission ── */
+function startFlash(){
+  if(transmitting)return;
+  var text=document.getElementById('msgInput').value.trim();
+  if(!text||!torchReady)return;
+  renderMorse();
+  var tokens=textToTokens(text);
+  if(!tokens.length)return;
+
+  transmitting=true; stopRequested=false;
+  document.getElementById('btnFlash').disabled=true;
+  document.getElementById('btnStop').disabled=false;
+  document.getElementById('msgInput').disabled=true;
+
+  transmitTokens(tokens,function(){
+    transmitting=false;
+    document.getElementById('btnFlash').disabled=false;
+    document.getElementById('btnStop').disabled=true;
+    document.getElementById('msgInput').disabled=false;
+    document.getElementById('sendLabel').innerHTML='';
+    setTorch(false);
+    /* reset highlights */
+    document.querySelectorAll('.m-char').forEach(function(el){
+      el.classList.remove('active','done');
+    });
+  });
+}
+
+function stopFlash(){
+  if(!transmitting)return;
+  stopRequested=true;
+}
+
+function sleep(ms){
+  return new Promise(function(res){setTimeout(res,ms);});
+}
+
+function transmitTokens(tokens,done){
+  var i=0;
+  function next(){
+    if(stopRequested){
+      setTorch(false);
+      transmitting=false;
+      document.getElementById('btnFlash').disabled=false;
+      document.getElementById('btnStop').disabled=true;
+      document.getElementById('msgInput').disabled=false;
+      document.getElementById('sendLabel').innerHTML='';
+      document.querySelectorAll('.m-char').forEach(function(el){el.classList.remove('active','done');});
+      return;
+    }
+    if(i>=tokens.length){setTorch(false);done();return;}
+    var t=tokens[i];
+    if(t.type==='space'){
+      document.getElementById('sendLabel').innerHTML='<span>[word gap]</span>';
+      i++;
+      sleep(WORD_GAP).then(next);
+      return;
+    }
+    /* letter */
+    var charEl=document.getElementById('mc'+t.idx);
+    if(charEl){charEl.classList.add('active');charEl.scrollIntoView({block:'nearest',behavior:'smooth'});}
+    document.getElementById('sendLabel').innerHTML='Sending: <span>'+t.char+'</span> &nbsp;<span style="font-size:10px;color:#A0A0B8">'+t.sym+'</span>';
+    flashLetter(t.sym,function(){
+      if(charEl){charEl.classList.remove('active');charEl.classList.add('done');}
+      i++;
+      /* letter gap before next (unless next is space or end) */
+      var gap=(i<tokens.length&&tokens[i].type!=='space')?LETTER_GAP:0;
+      sleep(gap).then(next);
+    });
+  }
+  next();
+}
+
+function flashLetter(sym,done){
+  var si=0;
+  function nextSym(){
+    if(stopRequested){done();return;}
+    if(si>=sym.length){done();return;}
+    var s=sym[si];
+    var dur=(s==='.')?DOT:DASH;
+    setTorch(true).then(function(){
+      return sleep(dur);
+    }).then(function(){
+      return setTorch(false);
+    }).then(function(){
+      si++;
+      if(si<sym.length){
+        sleep(SYM_GAP).then(nextSym);
+      } else {
+        done();
+      }
+    });
+  }
+  nextSym();
+}
+</script>
+</body></html>

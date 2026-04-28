@@ -1,0 +1,10 @@
+{
+  "title": "Clouds",
+  "description": "Drifting 3D clouds with a warm sun. Painterly, calm.",
+  "author": "iappyx",
+  "uses": [
+    "Vanta.js CLOUDS (MIT) — github.com/tengbao/vanta",
+    "Three.js (MIT)"
+  ],
+  "added": "2026-04-29"
+}

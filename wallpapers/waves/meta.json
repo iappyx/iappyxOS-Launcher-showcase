@@ -1,0 +1,10 @@
+{
+  "title": "Waves",
+  "description": "A calm 3D ocean-wave mesh in deep navy.",
+  "author": "iappyx",
+  "uses": [
+    "Vanta.js WAVES (MIT) — github.com/tengbao/vanta",
+    "Three.js (MIT)"
+  ],
+  "added": "2026-04-29"
+}

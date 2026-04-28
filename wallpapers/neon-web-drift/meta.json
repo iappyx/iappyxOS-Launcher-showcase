@@ -1,0 +1,10 @@
+{
+  "title": "Neon Web Drift",
+  "description": "Glowing nodes connected by lines, drifting through 3D space. Subtle ripple on touch.",
+  "author": "iappyx",
+  "uses": [
+    "Vanta.js NET (MIT) — github.com/tengbao/vanta",
+    "Three.js (MIT)"
+  ],
+  "added": "2026-04-29"
+}

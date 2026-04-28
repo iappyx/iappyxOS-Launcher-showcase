@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="iappyx-widget" content="keepAlive">
+<title>Live GPS Map</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+*:focus{outline:none}
+html,body{width:100%;height:100%;overflow:hidden;font-family:-apple-system,Roboto,system-ui,sans-serif;}
+#map{width:100%;height:100%;position:absolute;top:0;left:0;}
+#coords-bar{
+  position:absolute;bottom:0;left:0;right:0;z-index:1000;
+  background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);
+  -webkit-backdrop-filter:blur(6px);
+  padding:4px 10px;
+  display:flex;align-items:center;justify-content:center;gap:10px;
+}
+#coords-text{
+  font-size:clamp(9px,2.5vmin,13px);
+  color:#e0e8ff;letter-spacing:.3px;white-space:nowrap;
+}
+#status-dot{
+  width:7px;height:7px;border-radius:50%;
+  background:#4fc3f7;flex-shrink:0;
+  box-shadow:0 0 0 0 rgba(79,195,247,0.7);
+  animation:pulse-dot 2s infinite;
+}
+#status-dot.searching{background:#ffa726;box-shadow:0 0 0 0 rgba(255,167,38,0.7);}
+#status-dot.error{background:#ef5350;animation:none;}
+@keyframes pulse-dot{
+  0%{box-shadow:0 0 0 0 rgba(79,195,247,0.7);}
+  70%{box-shadow:0 0 0 6px rgba(79,195,247,0);}
+  100%{box-shadow:0 0 0 0 rgba(79,195,247,0);}
+}
+#zoom-controls{
+  position:absolute;top:10px;right:10px;z-index:1000;
+  display:flex;flex-direction:column;gap:4px;
+}
+.zoom-btn{
+  width:clamp(28px,8vmin,38px);height:clamp(28px,8vmin,38px);
+  border-radius:8px;border:none;cursor:pointer;
+  background:rgba(20,20,30,0.75);backdrop-filter:blur(6px);
+  -webkit-backdrop-filter:blur(6px);
+  color:#e8eeff;font-size:clamp(14px,4.5vmin,22px);font-weight:700;line-height:1;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 2px 8px rgba(0,0,0,0.4);
+  transition:background .15s,transform .1s;
+}
+.zoom-btn:active{background:rgba(60,80,160,0.85);transform:scale(0.92);}
+#locate-btn{
+  width:clamp(28px,8vmin,38px);height:clamp(28px,8vmin,38px);
+  border-radius:8px;border:none;cursor:pointer;
+  background:rgba(30,60,180,0.82);backdrop-filter:blur(6px);
+  -webkit-backdrop-filter:blur(6px);
+  color:#fff;font-size:clamp(13px,3.8vmin,19px);line-height:1;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 2px 8px rgba(0,0,0,0.45);
+  transition:background .15s,transform .1s;
+  margin-top:6px;
+}
+#locate-btn:active{background:rgba(20,40,140,0.92);transform:scale(0.92);}
+/* Leaflet overrides — keep attribution readable */
+.leaflet-control-attribution{font-size:8px!important;padding:1px 4px!important;}
+.leaflet-control-zoom{display:none!important;}/* we use custom buttons */
+/* Pulsing user marker */
+.user-marker-wrap{position:relative;}
+.user-dot{
+  width:16px;height:16px;border-radius:50%;
+  background:#2979ff;border:2.5px solid #fff;
+  box-shadow:0 0 0 0 rgba(41,121,255,0.7);
+  animation:pulse-marker 2s infinite;
+}
+@keyframes pulse-marker{
+  0%{box-shadow:0 0 0 0 rgba(41,121,255,0.65);}
+  70%{box-shadow:0 0 0 14px rgba(41,121,255,0);}
+  100%{box-shadow:0 0 0 0 rgba(41,121,255,0);}
+}
+#loading-overlay{
+  position:absolute;inset:0;z-index:2000;
+  background:var(--iappyx-surface,#1a1c2e);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+  color:var(--iappyx-on-surface,#e8eeff);
+}
+#loading-spinner{
+  width:36px;height:36px;border-radius:50%;
+  border:3px solid rgba(255,255,255,0.15);
+  border-top-color:#4fc3f7;
+  animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg);}}
+#loading-text{font-size:clamp(11px,3vmin,14px);opacity:.8;}
+</style>
+</head><body>
+
+<div id="loading-overlay">
+  <div id="loading-spinner"></div>
+  <div id="loading-text">Loading map…</div>
+</div>
+
+<div id="map"></div>
+
+<div id="zoom-controls">
+  <button class="zoom-btn" id="btn-zoom-in" aria-label="Zoom in">+</button>
+  <button class="zoom-btn" id="btn-zoom-out" aria-label="Zoom out">−</button>
+  <button id="locate-btn" aria-label="Center on location">◎</button>
+</div>
+
+<div id="coords-bar">
+  <div id="status-dot" class="searching"></div>
+  <div id="coords-text">Acquiring GPS…</div>
+</div>
+
+<script>
+// ─── Bridge init ─────────────────────────────────────────────────────────────
+function _initBridge(){
+  if(typeof iappyx==='undefined'){setTimeout(_initBridge,50);return;}
+  onReady();
+}
+window.addEventListener('load',function(){setTimeout(_initBridge,200);});
+
+// ─── State ───────────────────────────────────────────────────────────────────
+var map=null, userMarker=null, accuracyCircle=null;
+var libReady=false, locReady=false;
+var lastLat=null, lastLon=null;
+var followUser=true;
+
+// ─── Load Leaflet (cache in app-private storage) ──────────────────────────────
+function loadLeaflet(callback){
+  var LEAFLET_JS_URL  ='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  var LEAFLET_CSS_URL ='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  var JS_CACHE  ='leaflet194.js';
+  var CSS_CACHE ='leaflet194.css';
+
+  function injectCSS(cssText){
+    var el=document.createElement('style');
+    el.textContent=cssText;
+    document.head.appendChild(el);
+  }
+  function injectJS(code){
+    var s=document.createElement('script');
+    s.textContent=code;
+    document.head.appendChild(s);
+  }
+
+  // Load CSS first, then JS
+  function loadCSS(next){
+    var cached=iappyx.storage.loadFile(CSS_CACHE);
+    if(cached&&cached.length>500){injectCSS(cached);next();return;}
+    fetch(LEAFLET_CSS_URL)
+      .then(function(r){return r.text();})
+      .then(function(t){
+        if(t.length>500){iappyx.storage.saveFile(CSS_CACHE,t);injectCSS(t);}
+        next();
+      })
+      .catch(function(){next();});/* map still works without CSS icons */
+  }
+
+  function loadJS(next){
+    var cached=iappyx.storage.loadFile(JS_CACHE);
+    if(cached&&cached.length>1000){injectJS(cached);next();return;}
+    fetch(LEAFLET_JS_URL)
+      .then(function(r){return r.text();})
+      .then(function(t){
+        if(t.length>1000){iappyx.storage.saveFile(JS_CACHE,t);injectJS(t);}
+        next();
+      })
+      .catch(function(e){
+        setStatus('error','Map library unavailable — needs internet on first launch');
+      });
+  }
+
+  loadCSS(function(){loadJS(callback);});
+}
+
+// ─── App entry ────────────────────────────────────────────────────────────────
+function onReady(){
+  setLoadingText('Loading Leaflet…');
+  loadLeaflet(function(){
+    if(typeof L==='undefined'){
+      setStatus('error','Map library failed to load');
+      hideLoading('Failed to load map library. Please check your internet connection.');
+      return;
+    }
+    initMap();
+    libReady=true;
+    startLocation();
+  });
+}
+
+// ─── Map init ────────────────────────────────────────────────────────────────
+function initMap(){
+  // Default center — London, zoomed out until GPS arrives
+  map=L.map('map',{
+    center:[51.505,-0.09],
+    zoom:14,
+    zoomControl:false,
+    attributionControl:true
+  });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:19,
+    attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  }).addTo(map);
+
+  // Detect if user drags — stop auto-follow
+  map.on('dragstart',function(){followUser=false;});
+
+  // Custom zoom buttons
+  document.getElementById('btn-zoom-in').addEventListener('click',function(){
+    map.zoomIn();
+  });
+  document.getElementById('btn-zoom-out').addEventListener('click',function(){
+    map.zoomOut();
+  });
+  document.getElementById('locate-btn').addEventListener('click',function(){
+    followUser=true;
+    if(lastLat!==null){
+      map.setView([lastLat,lastLon],16,{animate:true});
+    }
+    iappyx.vibration.tick();
+  });
+}
+
+// ─── User marker (pulsing blue dot) ─────────────────────────────────────────
+function getUserIcon(){
+  return L.divIcon({
+    className:'user-marker-wrap',
+    html:'<div class="user-dot"></div>',
+    iconSize:[16,16],
+    iconAnchor:[8,8]
+  });
+}
+
+function updateMarker(lat,lon,acc){
+  if(!map) return;
+
+  if(!userMarker){
+    userMarker=L.marker([lat,lon],{icon:getUserIcon(),zIndexOffset:1000}).addTo(map);
+  } else {
+    userMarker.setLatLng([lat,lon]);
+  }
+
+  // Accuracy circle
+  var accM=acc||20;
+  if(!accuracyCircle){
+    accuracyCircle=L.circle([lat,lon],{
+      radius:accM,
+      color:'#2979ff',
+      fillColor:'#2979ff',
+      fillOpacity:0.12,
+      weight:1.5,
+      opacity:0.5
+    }).addTo(map);
+  } else {
+    accuracyCircle.setLatLng([lat,lon]);
+    accuracyCircle.setRadius(accM);
+  }
+
+  if(followUser){
+    map.setView([lat,lon],map.getZoom()<14?15:map.getZoom(),{animate:true,duration:0.6});
+  }
+}
+
+// ─── Location ────────────────────────────────────────────────────────────────
+function startLocation(){
+  setLoadingText('Acquiring GPS…');
+  // First one-shot to get permission + initial position
+  var cbId='loc_init_'+Date.now();
+  window._iappyxCb=window._iappyxCb||{};
+  window._iappyxCb[cbId]=function(r){
+    if(r&&r.ok){
+      lastLat=parseFloat(r.lat);
+      lastLon=parseFloat(r.lon);
+      var acc=r.accuracy?parseFloat(r.accuracy):20;
+      updateMarker(lastLat,lastLon,acc);
+      updateCoordsBar(lastLat,lastLon,acc);
+      hideLoading();
+      locReady=true;
+    } else {
+      hideLoading('GPS unavailable: '+(r&&r.error?r.error:'unknown error'));
+      setStatus('error','GPS error');
+    }
+    // Start continuous watching
+    startWatching();
+  };
+  var t=setTimeout(function(){
+    delete window._iappyxCb[cbId];
+    hideLoading('GPS timed out. Watching for position…');
+    startWatching();
+  },30000);
+  // Wrap the cb to clear timeout
+  var orig=window._iappyxCb[cbId];
+  window._iappyxCb[cbId]=function(r){clearTimeout(t);orig(r);};
+
+  iappyx.location.getLocation(cbId);
+}
+
+window.onGpsUpdate=function(r){
+  if(!r||r.error) return;
+  var lat=parseFloat(r.lat);
+  var lon=parseFloat(r.lon);
+  var acc=r.accuracy?parseFloat(r.accuracy):20;
+  lastLat=lat; lastLon=lon;
+  updateMarker(lat,lon,acc);
+  updateCoordsBar(lat,lon,acc);
+  if(!locReady){hideLoading();locReady=true;}
+};
+
+window.onGpsError=function(r){
+  setStatus('error','GPS error: '+(r&&r.error?r.error:'unknown'));
+};
+
+function startWatching(){
+  iappyx.location.watchPositionWithError('window.onGpsUpdate','window.onGpsError');
+}
+
+// ─── Coords bar ──────────────────────────────────────────────────────────────
+function updateCoordsBar(lat,lon,acc){
+  var dot=document.getElementById('status-dot');
+  dot.className=''; // active / good
+  var txt=document.getElementById('coords-text');
+  var latStr=(lat>=0?'N':'S')+Math.abs(lat).toFixed(5)+'°';
+  var lonStr=(lon>=0?'E':'W')+Math.abs(lon).toFixed(5)+'°';
+  var accStr=acc?(' ±'+Math.round(acc)+'m'):'';
+  txt.textContent=latStr+'  '+lonStr+accStr;
+}
+
+function setStatus(type,msg){
+  var dot=document.getElementById('status-dot');
+  dot.className=type||'';
+  if(msg){document.getElementById('coords-text').textContent=msg;}
+}
+
+// ─── Loading overlay ──────────────────────────────────────────────────────────
+function setLoadingText(t){
+  var el=document.getElementById('loading-text');
+  if(el) el.textContent=t;
+}
+function hideLoading(errMsg){
+  var ov=document.getElementById('loading-overlay');
+  if(ov) ov.style.display='none';
+  if(errMsg){
+    setStatus('error',errMsg);
+  }
+}
+</script>
+</body></html>

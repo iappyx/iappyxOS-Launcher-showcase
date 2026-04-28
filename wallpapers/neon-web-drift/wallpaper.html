@@ -1,0 +1,333 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Neon Web Drift</title>
+</head>
+<body style="margin:0;padding:0;background:#050a12;overflow:hidden;">
+<div id="vanta-bg" style="position:fixed;inset:0;width:100vw;height:100vh;"></div>
+<canvas id="fallback" style="position:fixed;inset:0;width:100vw;height:100vh;display:none;"></canvas>
+<script>
+(function(){
+  'use strict';
+
+  let visible = true;
+  let pageOffset = 0;
+  let accelX = 0, accelY = 0;
+  let vantaEffect = null;
+  let animId = null;
+  let fallbackRunning = false;
+
+  if (window.iappyx) {
+    iappyx.onVisibility = function(v) { visible = !!v; };
+    iappyx.onPageOffset = function(x) { pageOffset = x; };
+    iappyx.onAccelerometer = function(x, y, z) {
+      accelX = accelX * 0.88 + x * 0.12;
+      accelY = accelY * 0.88 + y * 0.12;
+    };
+    iappyx.enableAccelerometer(true);
+  }
+
+  function runScript(code) {
+    var s = document.createElement('script');
+    s.textContent = code;
+    document.head.appendChild(s);
+  }
+
+  async function loadLib(url, filename) {
+    let code = null;
+    if (window.iappyxStorage) {
+      code = iappyxStorage.loadFile(filename);
+    }
+    if (code && code.length > 100) {
+      runScript(code);
+      return true;
+    }
+    try {
+      const r = await iappyx.cb(id =>
+        iappyxHttpClient.request(JSON.stringify({
+          url: url,
+          method: 'GET',
+          timeoutMs: 30000
+        }), id)
+      );
+      if (!r.ok || !r.body || r.body.length < 100) return false;
+      if (window.iappyxStorage) {
+        iappyxStorage.saveFile(filename, r.body);
+      }
+      runScript(r.body);
+      return true;
+    } catch(e) {
+      if (window.iappyx) iappyx.log('loadLib error: ' + e);
+      return false;
+    }
+  }
+
+  function initVanta() {
+    if (typeof VANTA === 'undefined' || typeof VANTA.NET === 'undefined') {
+      startFallback();
+      return;
+    }
+    const el = document.getElementById('vanta-bg');
+    try {
+      vantaEffect = VANTA.NET({
+        el: el,
+        THREE: window.THREE,
+        mouseControls: true,
+        touchControls: true,
+        gyroControls: false,
+        minHeight: 200,
+        minWidth: 200,
+        scale: 1.0,
+        scaleMobile: 1.0,
+        color: 0x3a88ff,
+        backgroundColor: 0x050a12,
+        points: 14,
+        maxDistance: 22,
+        spacing: 16,
+        showDots: true
+      });
+      if (window.iappyx) iappyx.log('Vanta NET started');
+      startVantaLoop();
+    } catch(e) {
+      if (window.iappyx) iappyx.log('Vanta init error: ' + e);
+      startFallback();
+    }
+  }
+
+  // Full rainbow color cycling for vanta effect
+  let rainbowHue = 0;
+  let lastColorUpdate = 0;
+  function hueToRgbInt(h) {
+    // h in 0..360, returns full-brightness saturated color as int
+    const s = 1.0, l = 0.6;
+    const c = (1 - Math.abs(2*l - 1)) * s;
+    const x = c * (1 - Math.abs((h/60) % 2 - 1));
+    const m = l - c/2;
+    let r=0,g=0,b=0;
+    if (h < 60)      { r=c; g=x; b=0; }
+    else if (h < 120){ r=x; g=c; b=0; }
+    else if (h < 180){ r=0; g=c; b=x; }
+    else if (h < 240){ r=0; g=x; b=c; }
+    else if (h < 300){ r=x; g=0; b=c; }
+    else             { r=c; g=0; b=x; }
+    const ri = Math.round((r+m)*255);
+    const gi = Math.round((g+m)*255);
+    const bi = Math.round((b+m)*255);
+    return (ri << 16) | (gi << 8) | bi;
+  }
+
+  function startVantaLoop() {
+    function loop(ts) {
+      animId = requestAnimationFrame(loop);
+      if (!visible) return;
+
+      // Continuously cycle through all rainbow hues, ~one full cycle per 30s
+      if (ts - lastColorUpdate > 150) {
+        lastColorUpdate = ts;
+        rainbowHue = (rainbowHue + 1.8) % 360;
+        if (vantaEffect) {
+          try {
+            vantaEffect.setOptions({ color: hueToRgbInt(rainbowHue) });
+          } catch(e) {}
+        }
+      }
+
+      // React to accelerometer: nudge camera or mouse position
+      if (vantaEffect && (Math.abs(accelX) > 0.1 || Math.abs(accelY) > 0.1)) {
+        try {
+          const mx = (0.5 + accelX * 0.04) * window.innerWidth;
+          const my = (0.5 - accelY * 0.04) * window.innerHeight;
+          if (vantaEffect.mouseX !== undefined) {
+            vantaEffect.mouseX = vantaEffect.mouseX * 0.9 + mx * 0.1;
+            vantaEffect.mouseY = vantaEffect.mouseY * 0.9 + my * 0.1;
+          }
+        } catch(e) {}
+      }
+
+      // React to page swipe offset
+      if (vantaEffect && vantaEffect.camera) {
+        try {
+          const targetX = (pageOffset - 0.5) * 4;
+          vantaEffect.camera.position.x += (targetX - vantaEffect.camera.position.x) * 0.02;
+        } catch(e) {}
+      }
+    }
+    animId = requestAnimationFrame(loop);
+  }
+
+  // ---- Fallback: pure canvas particle net ----
+  function startFallback() {
+    const el = document.getElementById('vanta-bg');
+    el.style.display = 'none';
+    const canvas = document.getElementById('fallback');
+    canvas.style.display = 'block';
+    const ctx = canvas.getContext('2d');
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    const NODE_COUNT = 55;
+    const MAX_DIST = 160;
+    let nodes = [];
+
+    // Distribute initial hues evenly across the full rainbow
+    function mkNode(index, total) {
+      return {
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        vx: (Math.random() - 0.5) * 0.4,
+        vy: (Math.random() - 0.5) * 0.4,
+        r: 2 + Math.random() * 2.5,
+        // Spread evenly across full 360 degree spectrum
+        hueBase: (index / total) * 360,
+        hueOffset: Math.random() * 30 - 15
+      };
+    }
+    for (let i = 0; i < NODE_COUNT; i++) nodes.push(mkNode(i, NODE_COUNT));
+
+    let t = 0;
+    let touchX = null, touchY = null;
+
+    canvas.addEventListener('touchmove', function(e) {
+      if (e.touches.length > 0) {
+        touchX = e.touches[0].clientX;
+        touchY = e.touches[0].clientY;
+      }
+    }, {passive: true});
+    canvas.addEventListener('touchend', function() {
+      touchX = null; touchY = null;
+    }, {passive: true});
+
+    function drawFallback() {
+      animId = requestAnimationFrame(drawFallback);
+      if (!visible) return;
+      t += 0.005;
+
+      const W = canvas.width, H = canvas.height;
+      ctx.clearRect(0, 0, W, H);
+
+      // Background gradient
+      const bg = ctx.createRadialGradient(W*0.5, H*0.5, 0, W*0.5, H*0.5, Math.max(W, H)*0.75);
+      bg.addColorStop(0, '#080f1e');
+      bg.addColorStop(1, '#030608');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, W, H);
+
+      // Update nodes
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        // Gentle drift with accel tilt
+        n.vx += (Math.random() - 0.5) * 0.01 - accelX * 0.002;
+        n.vy += (Math.random() - 0.5) * 0.01 + accelY * 0.002;
+        // Speed limit
+        const spd = Math.sqrt(n.vx*n.vx + n.vy*n.vy);
+        if (spd > 0.7) { n.vx *= 0.7/spd; n.vy *= 0.7/spd; }
+        n.x += n.vx + Math.sin(t + i * 0.7) * 0.15;
+        n.y += n.vy + Math.cos(t + i * 0.5) * 0.15;
+        // Bounce
+        if (n.x < 0) { n.x = 0; n.vx = Math.abs(n.vx); }
+        if (n.x > W) { n.x = W; n.vx = -Math.abs(n.vx); }
+        if (n.y < 0) { n.y = 0; n.vy = Math.abs(n.vy); }
+        if (n.y > H) { n.y = H; n.vy = -Math.abs(n.vy); }
+        // Page offset drift
+        n.x += (pageOffset - 0.5) * 0.3;
+        // Touch repulsion
+        if (touchX !== null) {
+          const dx = n.x - touchX, dy = n.y - touchY;
+          const d = Math.sqrt(dx*dx + dy*dy);
+          if (d < 100 && d > 0) {
+            n.vx += (dx/d) * (100-d) * 0.004;
+            n.vy += (dy/d) * (100-d) * 0.004;
+          }
+        }
+      }
+
+      // Draw edges
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const a = nodes[i], b = nodes[j];
+          const dx = a.x - b.x, dy = a.y - b.y;
+          const dist = Math.sqrt(dx*dx + dy*dy);
+          if (dist < MAX_DIST) {
+            const alpha = (1 - dist/MAX_DIST) * 0.55;
+            // Edge hue is the average of both nodes' current animated hues
+            const hueA = (a.hueBase + a.hueOffset + t * 18) % 360;
+            const hueB = (b.hueBase + b.hueOffset + t * 18) % 360;
+            // Interpolate hue carefully across the circle
+            let dh = hueB - hueA;
+            if (dh > 180) dh -= 360;
+            if (dh < -180) dh += 360;
+            const hue = (hueA + dh * 0.5 + 360) % 360;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.strokeStyle = `hsla(${hue}, 100%, 65%, ${alpha})`;
+            ctx.lineWidth = alpha * 1.8;
+            ctx.stroke();
+          }
+        }
+      }
+
+      // Draw nodes — each node slowly cycles through the full rainbow
+      // with its own offset so they're all different colors at any moment
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        // Full rainbow cycle: ~one full loop every ~70s, each node offset
+        const hue = (n.hueBase + n.hueOffset + t * 18) % 360;
+        const grd = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r * 3.5);
+        grd.addColorStop(0, `hsla(${hue}, 100%, 88%, 0.95)`);
+        grd.addColorStop(0.4, `hsla(${hue}, 100%, 65%, 0.6)`);
+        grd.addColorStop(1, `hsla(${hue}, 100%, 50%, 0)`);
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r * 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = grd;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r * 0.7, 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(${hue}, 100%, 95%, 0.95)`;
+        ctx.fill();
+      }
+    }
+    fallbackRunning = true;
+    animId = requestAnimationFrame(drawFallback);
+  }
+
+  async function main() {
+    if (!window.iappyx) {
+      startFallback();
+      return;
+    }
+
+    try {
+      const threeOk = await loadLib(
+        'https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js',
+        'three-0134.js'
+      );
+      if (!threeOk) throw new Error('three failed');
+
+      const vantaOk = await loadLib(
+        'https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.net.min.js',
+        'vanta-net-0524.js'
+      );
+      if (!vantaOk) throw new Error('vanta failed');
+
+      // Small delay to ensure scripts are parsed
+      await new Promise(res => setTimeout(res, 80));
+      initVanta();
+    } catch(e) {
+      if (window.iappyx) iappyx.log('Vanta load failed, using fallback: ' + e);
+      startFallback();
+    }
+  }
+
+  main();
+})();
+</script>
+</body>
+</html>

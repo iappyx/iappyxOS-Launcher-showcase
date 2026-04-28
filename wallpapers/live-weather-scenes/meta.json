@@ -1,0 +1,9 @@
+{
+  "title": "Live Weather Scenes",
+  "description": "Real-time weather scenes that change with the conditions outside: sun, clouds, rain, thunderstorm, snow, or fog. Refreshes every ten minutes.",
+  "author": "iappyx",
+  "uses": [
+    "Open-Meteo — open-meteo.com (free, no key)"
+  ],
+  "added": "2026-04-29"
+}

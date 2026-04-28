@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="iappyx-widget" content="pause, refresh=1s">
+<title>Clock</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: transparent; color: #fff;
+               font-family: -apple-system, Roboto, sans-serif; overflow: hidden; }
+  #root { display: flex; flex-direction: column; align-items: center; justify-content: center;
+          height: 100%; gap: 6px; padding: 8px; box-sizing: border-box; }
+  #time { font-size: 28px; font-weight: 600; letter-spacing: 0.5px; }
+  #date { font-size: 12px; color: #A0A0B8; }
+</style>
+</head>
+<body>
+  <div id="root">
+    <div id="time">--:--</div>
+    <div id="date"></div>
+  </div>
+<script>
+(function(){
+  function pad(n){ return n < 10 ? '0' + n : '' + n; }
+  function tick(){
+    var d = new Date();
+    document.getElementById('time').textContent = pad(d.getHours()) + ':' + pad(d.getMinutes());
+    document.getElementById('date').textContent = d.toDateString();
+  }
+  tick();
+  setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>

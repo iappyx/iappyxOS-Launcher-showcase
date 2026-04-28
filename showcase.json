@@ -1,0 +1,351 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-04-29",
+  "widgets": [
+    {
+      "slug": "clock",
+      "title": "Clock",
+      "description": "The classic clock — time and date, nothing else.",
+      "author": "iappyx",
+      "bridges": [],
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "compass",
+      "title": "Compass",
+      "description": "A simple magnetic compass. Combines the magnetometer and accelerometer for a steady bearing. Works offline.",
+      "author": "iappyx",
+      "bridges": [
+        "sensor"
+      ],
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "live-gps-map",
+      "title": "Live GPS Map",
+      "description": "A small map that follows your GPS in real time. Pulsing dot shows where you are; the map pans with you as you move.",
+      "author": "iappyx",
+      "bridges": [
+        "location",
+        "storage",
+        "vibration"
+      ],
+      "uses": [
+        "Leaflet.js (BSD-2-Clause) — leafletjs.com"
+      ],
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "morse-flashlight",
+      "title": "Morse Flashlight",
+      "description": "Type a message; the torch blinks it in Morse code — long flash for a dash, short for a dot.",
+      "author": "iappyx",
+      "bridges": [
+        "torch"
+      ],
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "qr-barcode-scanner",
+      "title": "QR & Barcode Scanner",
+      "description": "Scans both QR codes and 1D barcodes through the camera. Copies the result to the clipboard, or opens it directly if it's a URL or phone number.",
+      "author": "iappyx",
+      "bridges": [
+        "clipboard",
+        "intent",
+        "storage"
+      ],
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "water-tracker",
+      "title": "Water Tracker",
+      "description": "Tap a glass to mark it drunk. Tracks your daily intake, resets at midnight, and nudges you with a reminder if you've gone too long without a sip.",
+      "author": "iappyx",
+      "bridges": [
+        "alarm",
+        "notification",
+        "sqlite",
+        "vibration"
+      ],
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "weather",
+      "title": "Weather",
+      "description": "Current conditions for your GPS location. Pulls from the free Open-Meteo API — no key needed.",
+      "author": "iappyx",
+      "bridges": [
+        "httpClient",
+        "location",
+        "storage"
+      ],
+      "added": "2026-04-29"
+    }
+  ],
+  "wallpapers": [
+    {
+      "slug": "bouncing-balls",
+      "title": "Bouncing balls",
+      "description": "Twenty colourful balls bounce around your home screen, dodging your icons and widgets in real time. Rearrange your layout and the balls find a new path.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "cells-flow",
+      "title": "Cells flow",
+      "description": "An animated mosaic of warm orange and cool blue cells, pulsing and shifting organically.",
+      "author": "iappyx",
+      "uses": [
+        "Vanta.js CELLS (MIT) — github.com/tengbao/vanta",
+        "Three.js (MIT)"
+      ],
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "chromatic-halo-bloom",
+      "title": "Chromatic Halo Bloom",
+      "description": "Each icon and widget gets a glowing halo around its edges, all cycling through the colour spectrum on a 12-second loop.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "clouds",
+      "title": "Clouds",
+      "description": "Drifting 3D clouds with a warm sun. Painterly, calm.",
+      "author": "iappyx",
+      "uses": [
+        "Vanta.js CLOUDS (MIT) — github.com/tengbao/vanta",
+        "Three.js (MIT)"
+      ],
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "digital-rain",
+      "title": "Digital Rain",
+      "description": "Matrix-style green katakana raining down with a soft glow. Capped at 30fps to stay battery-friendly.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "falling-snow",
+      "title": "Falling Snow",
+      "description": "Snowflakes drift downward and pile up at the bottom of the screen. Shake the device to clear the pile with a flash.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "fireworks",
+      "title": "Fireworks",
+      "description": "Looped fireworks against a black sky.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "hue-drift",
+      "title": "Hue drift",
+      "description": "A slow-drifting radial colour gradient. Subtle parallax on home-screen swipes, plus a tilt response from the device sensors.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "live-map",
+      "title": "Live map",
+      "description": "An interactive map centred on your real-time GPS location. The map pans with you as you move.",
+      "author": "iappyx",
+      "uses": [
+        "Leaflet.js (BSD-2-Clause) — leafletjs.com",
+        "OpenStreetMap tiles — openstreetmap.org"
+      ],
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "live-weather-scenes",
+      "title": "Live Weather Scenes",
+      "description": "Real-time weather scenes that change with the conditions outside: sun, clouds, rain, thunderstorm, snow, or fog. Refreshes every ten minutes.",
+      "author": "iappyx",
+      "uses": [
+        "Open-Meteo — open-meteo.com (free, no key)"
+      ],
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "magnetic-neon-particles",
+      "title": "Magnetic Neon Particles",
+      "description": "Hundreds of glowing particles that respond to your phone's motion. Tilt to fling them, shake for a burst, hold still and they cluster around invisible magnets.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "material-color-drift",
+      "title": "Material Color Drift",
+      "description": "An infinite grid of Material Design colour swatches drifting smoothly in every direction. 190 colours tiled seamlessly.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "neon-halo-drift",
+      "title": "Neon Halo Drift",
+      "description": "A 3D halo of neon particles slowly orbiting through space against a deep dark background.",
+      "author": "iappyx",
+      "uses": [
+        "Vanta.js HALO (MIT) — github.com/tengbao/vanta",
+        "Three.js (MIT)"
+      ],
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "neon-web-drift",
+      "title": "Neon Web Drift",
+      "description": "Glowing nodes connected by lines, drifting through 3D space. Subtle ripple on touch.",
+      "author": "iappyx",
+      "uses": [
+        "Vanta.js NET (MIT) — github.com/tengbao/vanta",
+        "Three.js (MIT)"
+      ],
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "rotating-radial-gradient",
+      "title": "Rotating Radial Gradient",
+      "description": "A radial rainbow gradient that slowly rotates.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "shake-for-a-photo",
+      "title": "Shake for a Photo",
+      "description": "Shake your phone to fetch a new random landscape photo. Smooth crossfade between shots.",
+      "author": "iappyx",
+      "uses": [
+        "Lorem Picsum — picsum.photos"
+      ],
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "waves",
+      "title": "Waves",
+      "description": "A calm 3D ocean-wave mesh in deep navy.",
+      "author": "iappyx",
+      "uses": [
+        "Vanta.js WAVES (MIT) — github.com/tengbao/vanta",
+        "Three.js (MIT)"
+      ],
+      "added": "2026-04-29"
+    }
+  ],
+  "transitions": [
+    {
+      "slug": "3d-cube",
+      "title": "3D cube",
+      "description": "Six home screens form a 3D cube; pages turn around the meeting edge as you swipe.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "aperture",
+      "title": "Aperture",
+      "description": "Pages contract to a dot in the centre, then bloom back out into the next page.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "card-stack",
+      "title": "Card stack",
+      "description": "The outgoing page lifts and tilts back like a dealer flicking a card off the top of a deck.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "carousel",
+      "title": "Carousel",
+      "description": "Pages rotate around their own centres like records on a turntable.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "column-rain",
+      "title": "Column rain",
+      "description": "Columns drop off the bottom one at a time, left to right; new columns drop in from the top in the same order.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "depth-stack",
+      "title": "Depth stack",
+      "description": "The outgoing page recedes (fades and scales down) as the incoming one slides over it.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "dissolve",
+      "title": "Dissolve",
+      "description": "Cells fade out individually in a stochastic speckle, like an old film cut.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "explode",
+      "title": "Explode",
+      "description": "Cells radiate outward from the centre with a spin, then settle into the new page.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "fade",
+      "title": "Fade",
+      "description": "A pure crossfade — no motion at all.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "frosted-blur",
+      "title": "Frosted blur",
+      "description": "The outgoing page blurs out as the incoming one sharpens into focus. Android 12+.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "horizontal-sweep",
+      "title": "Horizontal sweep",
+      "description": "The default left/right slide between pages.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "implode-explode",
+      "title": "Implode & explode",
+      "description": "Cells collapse to the screen centre, then burst back out into their new positions on the incoming page.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "scatter",
+      "title": "Scatter",
+      "description": "Each cell flies to its own off-screen point instead of moving as a slab.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "tilt-cascade",
+      "title": "Tilt cascade",
+      "description": "The horizontal slide with a 3D tilt; the page reads as a flipping card.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "vertical-fall",
+      "title": "Vertical fall",
+      "description": "Pages fall up or down between cards instead of sliding sideways.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    },
+    {
+      "slug": "zoom-through",
+      "title": "Zoom-through",
+      "description": "Pages zoom out as new ones zoom in. Quick and punchy.",
+      "author": "iappyx",
+      "added": "2026-04-29"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "title": "Cells flow",
+  "description": "An animated mosaic of warm orange and cool blue cells, pulsing and shifting organically.",
+  "author": "iappyx",
+  "uses": [
+    "Vanta.js CELLS (MIT) — github.com/tengbao/vanta",
+    "Three.js (MIT)"
+  ],
+  "added": "2026-04-29"
+}

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="iappyx-widget" content="keepAlive">
+<title>Water Tracker</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+*:focus{outline:none}
+button{-webkit-appearance:none;background:none;border:none;color:inherit;font:inherit;cursor:pointer}
+html,body{
+  width:100%;height:100%;
+  background:var(--iappyx-surface,#1a2a3a);
+  color:var(--iappyx-on-surface,#e8f4fd);
+  font-family:-apple-system,Roboto,system-ui,sans-serif;
+  overflow:hidden;
+}
+#root{
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:space-between;
+  width:100%;height:100%;
+  padding:clamp(6px,3%,18px) clamp(8px,4%,22px);
+}
+
+/* ── Header row ── */
+.header{
+  display:flex;align-items:center;justify-content:space-between;
+  width:100%;
+}
+.title{
+  font-size:clamp(9px,3vmin,13px);
+  font-weight:600;
+  letter-spacing:.6px;
+  color:var(--iappyx-secondary,#7eb8e0);
+  text-transform:uppercase;
+}
+.reset-btn{
+  font-size:clamp(8px,2.8vmin,12px);
+  color:var(--iappyx-tertiary,#e07e7e);
+  padding:2px 6px;
+  border-radius:20px;
+  border:1px solid var(--iappyx-tertiary,#e07e7e);
+  opacity:.75;
+  transition:opacity .15s;
+}
+.reset-btn:active{opacity:1;}
+
+/* ── Cup count display ── */
+.count-block{
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  flex:1;
+  gap:clamp(1px,1vmin,4px);
+}
+.cup-emoji{font-size:clamp(18px,7vmin,40px);line-height:1;}
+.cup-count{
+  font-size:clamp(28px,12vmin,72px);
+  font-weight:700;
+  color:var(--iappyx-primary,#4fc3f7);
+  line-height:1;
+  letter-spacing:-1px;
+}
+.cup-goal{
+  font-size:clamp(9px,3vmin,14px);
+  color:var(--iappyx-neutral,#8eaaba);
+}
+.ml-display{
+  font-size:clamp(8px,2.8vmin,12px);
+  color:var(--iappyx-neutral,#8eaaba);
+  margin-top:clamp(0px,.5vmin,3px);
+}
+
+/* ── Progress bar ── */
+.progress-wrap{
+  width:100%;
+  background:rgba(255,255,255,.1);
+  border-radius:999px;
+  height:clamp(6px,2vmin,12px);
+  overflow:hidden;
+}
+.progress-fill{
+  height:100%;
+  border-radius:999px;
+  background:linear-gradient(90deg,var(--iappyx-secondary,#4fc3f7),var(--iappyx-primary,#0288d1));
+  transition:width .4s cubic-bezier(.4,0,.2,1);
+  min-width:0;
+}
+.progress-fill.done{
+  background:linear-gradient(90deg,#43e97b,#38f9d7);
+}
+.pct-label{
+  font-size:clamp(7px,2.3vmin,11px);
+  color:var(--iappyx-neutral,#8eaaba);
+  text-align:right;
+  width:100%;
+  margin-top:2px;
+}
+
+/* ── Add button ── */
+.add-btn{
+  width:clamp(44px,20vmin,88px);
+  height:clamp(44px,20vmin,88px);
+  border-radius:50%;
+  background:linear-gradient(135deg,var(--iappyx-primary,#0288d1),var(--iappyx-secondary,#4fc3f7));
+  display:flex;align-items:center;justify-content:center;
+  font-size:clamp(24px,10vmin,52px);
+  font-weight:300;
+  color:#fff;
+  box-shadow:0 4px 20px rgba(2,136,209,.45);
+  transition:transform .12s,box-shadow .12s;
+  flex-shrink:0;
+  line-height:1;
+}
+.add-btn:active{
+  transform:scale(.9);
+  box-shadow:0 2px 8px rgba(2,136,209,.3);
+}
+.add-btn.done-btn{
+  background:linear-gradient(135deg,#43e97b,#38f9d7);
+  box-shadow:0 4px 20px rgba(67,233,123,.35);
+}
+
+/* ── Snack toast ── */
+.toast{
+  position:fixed;bottom:8%;left:50%;transform:translateX(-50%) translateY(20px);
+  background:rgba(0,0,0,.7);color:#fff;
+  font-size:clamp(9px,3vmin,12px);
+  padding:5px 14px;border-radius:20px;
+  opacity:0;transition:opacity .2s,transform .2s;
+  pointer-events:none;white-space:nowrap;
+  z-index:99;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+</style>
+</head><body>
+<div id="root">
+  <div class="header">
+    <div class="title">💧 Water</div>
+    <button class="reset-btn" id="resetBtn">Reset</button>
+  </div>
+
+  <div class="count-block">
+    <div class="cup-emoji" id="cupEmoji">🥤</div>
+    <div class="cup-count" id="cupCount">0</div>
+    <div class="cup-goal" id="cupGoal">of 8 cups</div>
+    <div class="ml-display" id="mlDisplay">0 / 2000 ml</div>
+  </div>
+
+  <div style="width:100%;display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+    <div class="progress-wrap">
+      <div class="progress-fill" id="progressFill" style="width:0%"></div>
+    </div>
+    <div class="pct-label" id="pctLabel">0%</div>
+  </div>
+
+  <button class="add-btn" id="addBtn">+</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ── Bridge init ── */
+function _initBridge(){
+  if(typeof iappyx==='undefined'){setTimeout(_initBridge,50);return;}
+  onReady();
+}
+window.addEventListener('load',function(){setTimeout(_initBridge,200);});
+
+/* ── Constants ── */
+var GOAL_CUPS     = 8;
+var ML_PER_CUP    = 250;
+var GOAL_ML       = GOAL_CUPS * ML_PER_CUP; // 2000
+var REMIND_MS     = 2 * 60 * 60 * 1000;     // 2 hours
+var REMIND_ID     = 'water_reminder';
+var DB_NAME       = 'water_tracker.db';
+var NOTIF_ID      = 'water_notif_42';
+var dbReady       = false;
+
+/* ── State ── */
+var todayKey  = '';
+var cups      = 0;
+var lastLog   = 0; // timestamp of last cup
+
+/* ── Helper: today's date key ── */
+function todayStr(){
+  var d=new Date();
+  return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate();
+}
+
+/* ── DB helpers ── */
+function dbExec(sql,params){
+  return JSON.parse(iappyx.sqlite.exec(sql, params ? JSON.stringify(params) : null));
+}
+function dbQuery(sql,params){
+  return JSON.parse(iappyx.sqlite.query(sql, params ? JSON.stringify(params) : null));
+}
+
+/* ── Toast ── */
+var toastTimer=null;
+function showToast(msg){
+  var el=document.getElementById('toast');
+  el.textContent=msg;
+  el.classList.add('show');
+  if(toastTimer)clearTimeout(toastTimer);
+  toastTimer=setTimeout(function(){el.classList.remove('show');},1800);
+}
+
+/* ── Render ── */
+function render(){
+  var ml        = cups * ML_PER_CUP;
+  var pct       = Math.min(100, Math.round((cups / GOAL_CUPS) * 100));
+  var done      = cups >= GOAL_CUPS;
+
+  document.getElementById('cupCount').textContent = cups;
+  document.getElementById('cupGoal').textContent  = 'of '+GOAL_CUPS+' cups';
+  document.getElementById('mlDisplay').textContent= ml+' / '+GOAL_ML+' ml';
+  document.getElementById('cupEmoji').textContent = done ? '🎉' : '🥤';
+
+  var fill = document.getElementById('progressFill');
+  fill.style.width = pct+'%';
+  fill.className   = 'progress-fill'+(done?' done':'');
+
+  document.getElementById('pctLabel').textContent = pct+'%';
+
+  var btn = document.getElementById('addBtn');
+  btn.className = 'add-btn'+(done?' done-btn':'');
+  btn.textContent = done ? '✓' : '+';
+}
+
+/* ── Load today's data from DB ── */
+function loadToday(){
+  todayKey = todayStr();
+  var r = dbQuery('SELECT cups, last_log FROM water_log WHERE day=?',[todayKey]);
+  if(r.ok && r.rows && r.rows.length > 0){
+    cups    = r.rows[0].cups    || 0;
+    lastLog = r.rows[0].last_log || 0;
+  } else {
+    cups    = 0;
+    lastLog = 0;
+  }
+  render();
+}
+
+/* ── Persist ── */
+function saveToday(){
+  // Upsert pattern
+  dbExec(
+    'INSERT INTO water_log(day,cups,last_log) VALUES(?,?,?) '+
+    'ON CONFLICT(day) DO UPDATE SET cups=excluded.cups, last_log=excluded.last_log',
+    [todayKey, cups, lastLog]
+  );
+}
+
+/* ── Reminder scheduling ── */
+function scheduleReminder(){
+  // Cancel any existing reminder first
+  iappyx.alarm.cancelById(REMIND_ID);
+  // Only schedule if goal not yet met
+  if(cups < GOAL_CUPS){
+    var fireAt = Date.now() + REMIND_MS;
+    iappyx.alarm.setWithId(REMIND_ID, fireAt, 'window.onWaterReminder');
+  }
+}
+
+window.onWaterReminder = function(){
+  // Check: if still no new log in 2h, send notification
+  if(Date.now() - lastLog >= REMIND_MS && cups < GOAL_CUPS){
+    iappyx.notification.sendWithId(
+      NOTIF_ID,
+      '💧 Time to hydrate!',
+      'You haven\'t logged any water in 2 hours. '+(GOAL_CUPS-cups)+' cup'+(GOAL_CUPS-cups!==1?'s':'')+' left today!'
+    );
+  }
+  // Re-arm for next check
+  scheduleReminder();
+};
+
+/* ── Add a cup ── */
+function addCup(){
+  if(cups >= GOAL_CUPS){
+    showToast('Daily goal already reached! 🎉');
+    iappyx.vibration.tick();
+    return;
+  }
+  cups++;
+  lastLog = Date.now();
+  iappyx.vibration.click();
+  saveToday();
+  scheduleReminder();
+  render();
+  if(cups === GOAL_CUPS){
+    showToast('Goal reached! Great job! 🎉');
+    iappyx.notification.sendWithId(NOTIF_ID,'💧 Goal reached!','You\'ve hit your daily water goal! 🎉');
+    iappyx.alarm.cancelById(REMIND_ID);
+  } else {
+    showToast('+'+ ML_PER_CUP +'ml logged');
+  }
+}
+
+/* ── Reset ── */
+function resetDay(){
+  cups    = 0;
+  lastLog = 0;
+  todayKey= todayStr();
+  dbExec('DELETE FROM water_log WHERE day=?',[todayKey]);
+  iappyx.alarm.cancelById(REMIND_ID);
+  iappyx.vibration.pattern('0,80,60,80');
+  render();
+  showToast('Day reset');
+  scheduleReminder();
+}
+
+/* ── Auto-reset on new calendar day ── */
+function checkDayRollover(){
+  if(todayStr() !== todayKey){
+    loadToday();
+    scheduleReminder();
+  }
+}
+
+/* ── Init ── */
+function onReady(){
+  // Init DB
+  var openRes = JSON.parse(iappyx.sqlite.open(DB_NAME));
+  if(!openRes.ok){
+    showToast('DB error');
+    return;
+  }
+  dbExec(
+    'CREATE TABLE IF NOT EXISTS water_log('+
+    'day TEXT PRIMARY KEY,'+
+    'cups INTEGER NOT NULL DEFAULT 0,'+
+    'last_log INTEGER NOT NULL DEFAULT 0'+
+    ')'
+  );
+  dbReady = true;
+
+  loadToday();
+  scheduleReminder();
+
+  // Wire buttons
+  document.getElementById('addBtn').addEventListener('click', addCup);
+  document.getElementById('resetBtn').addEventListener('click', resetDay);
+
+  // Midnight rollover check every minute
+  setInterval(checkDayRollover, 60000);
+}
+</script>
+</body></html>

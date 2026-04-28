@@ -1,0 +1,9 @@
+{
+  "title": "Shake for a Photo",
+  "description": "Shake your phone to fetch a new random landscape photo. Smooth crossfade between shots.",
+  "author": "iappyx",
+  "uses": [
+    "Lorem Picsum — picsum.photos"
+  ],
+  "added": "2026-04-29"
+}

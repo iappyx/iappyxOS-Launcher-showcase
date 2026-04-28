@@ -1,0 +1,104 @@
+<!doctype html>
+<html>
+<head><title>Clouds</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#68b8d7;}
+  #vanta-bg{position:fixed;inset:0;width:100vw;height:100vh;}
+</style>
+</head>
+<body>
+<div id="vanta-bg"></div>
+<script>
+(function(){
+  var visible = true;
+  var vantaEffect = null;
+
+  if(window.iappyx){
+    iappyx.onVisibility = function(v){ visible = !!v; };
+  }
+
+  function runScript(code){
+    var s = document.createElement('script');
+    s.textContent = code;
+    document.head.appendChild(s);
+  }
+
+  async function loadLib(url, filename){
+    var code = iappyxStorage.loadFile(filename);
+    if(code && code.length > 100){ runScript(code); return; }
+    const r = await iappyx.cb(id => iappyxHttpClient.request(JSON.stringify({url: url, method:'GET', timeoutMs:30000}), id));
+    if(!r.ok || !r.body) throw new Error('CDN fetch failed: ' + (r.error || 'no body'));
+    iappyxStorage.saveFile(filename, r.body);
+    runScript(r.body);
+  }
+
+  function initVanta(){
+    if(typeof THREE === 'undefined' || typeof VANTA === 'undefined' || typeof VANTA.CLOUDS === 'undefined'){
+      fallback();
+      return;
+    }
+    try {
+      vantaEffect = VANTA.CLOUDS({
+        el: '#vanta-bg',
+        THREE: THREE,
+        mouseControls: false,
+        touchControls: false,
+        gyroControls: false,
+        minHeight: window.innerHeight,
+        minWidth: window.innerWidth,
+        skyColor: 0x68b8d7,
+        cloudColor: 0xadc1de,
+        cloudShadowColor: 0x183550,
+        sunColor: 0xff9919,
+        sunGlareColor: 0xff6633,
+        sunlightColor: 0xff9933,
+        speed: 1.0
+      });
+      if(window.iappyx){
+        iappyx.log('Vanta CLOUDS initialized successfully');
+      }
+    } catch(e){
+      if(window.iappyx) iappyx.log('Vanta init error: ' + e.message);
+      fallback();
+    }
+  }
+
+  function fallback(){
+    var bg = document.getElementById('vanta-bg');
+    bg.style.background = 'linear-gradient(180deg, #68b8d7 0%, #adc1de 40%, #c8d8e8 70%, #e8f0f8 100%)';
+    if(window.iappyx) iappyx.log('Using fallback gradient');
+  }
+
+  async function main(){
+    if(!window.iappyx || !window.iappyxStorage || !window.iappyxHttpClient){
+      fallback();
+      return;
+    }
+    try {
+      await loadLib(
+        'https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js',
+        'three-r134.js'
+      );
+      await loadLib(
+        'https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.clouds.min.js',
+        'vanta-clouds-0524.js'
+      );
+      initVanta();
+    } catch(e){
+      if(window.iappyx) iappyx.log('Library load failed: ' + e.message);
+      fallback();
+    }
+  }
+
+  window.addEventListener('resize', function(){
+    if(vantaEffect && vantaEffect.resize) vantaEffect.resize();
+  });
+
+  main();
+})();
+</script>
+</body>
+</html>

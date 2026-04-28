@@ -1,0 +1,787 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live Weather Scenes</title>
+</head>
+<body style="margin:0;padding:0;background:#1a1a4e;overflow:hidden;">
+<canvas id="c" style="position:fixed;inset:0;width:100vw;height:100vh;display:block;"></canvas>
+<script>
+(function(){
+'use strict';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+function fit(){
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+fit();
+
+let visible = true;
+let pageOffset = 0;
+let accelX = 0, accelY = 0;
+
+if(window.iappyx){
+  iappyx.onVisibility = v => { visible = !!v; };
+  iappyx.onPageOffset = v => { pageOffset = v; };
+  iappyx.onAccelerometer = (x,y,z) => {
+    accelX = accelX*0.92 + x*0.08;
+    accelY = accelY*0.92 + y*0.08;
+  };
+  iappyx.enableAccelerometer(true);
+}
+
+// ===================== WEATHER STATE =====================
+
+let weatherScene = 'CLEAR_NIGHT';
+let weatherTemp = null;
+let weatherEmoji = '🌙';
+let weatherLabel = 'Clear Night';
+let lastWeatherFetch = 0;
+const WEATHER_INTERVAL = 10 * 60 * 1000;
+let locationOk = false;
+let statusMsg = 'Locating…';
+let statusFade = 1.0;
+let statusTimer = 0;
+
+function decodeWMO(code, isDay){
+  if(code === 0) return isDay ? 'CLEAR_DAY' : 'CLEAR_NIGHT';
+  if(code <= 2) return isDay ? 'PARTLY_CLOUDY_DAY' : 'CLEAR_NIGHT';
+  if(code === 3) return 'CLOUDY';
+  if(code >= 45 && code <= 48) return 'FOG';
+  if((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return 'RAIN';
+  if((code >= 71 && code <= 77) || (code >= 85 && code <= 86)) return 'SNOW';
+  if(code >= 95) return 'THUNDERSTORM';
+  return isDay ? 'CLEAR_DAY' : 'CLEAR_NIGHT';
+}
+
+function sceneInfo(scene){
+  const map = {
+    'CLEAR_DAY':         {emoji:'☀️',  label:'Clear Day'},
+    'CLEAR_NIGHT':       {emoji:'🌙',  label:'Clear Night'},
+    'PARTLY_CLOUDY_DAY': {emoji:'⛅',  label:'Partly Cloudy'},
+    'CLOUDY':            {emoji:'🌥️', label:'Cloudy'},
+    'FOG':               {emoji:'🌫️', label:'Foggy'},
+    'RAIN':              {emoji:'🌧️', label:'Rain'},
+    'SNOW':              {emoji:'❄️',  label:'Snow'},
+    'THUNDERSTORM':      {emoji:'⛈️', label:'Thunderstorm'},
+  };
+  return map[scene] || {emoji:'🌙', label:'Night'};
+}
+
+async function fetchWeather(){
+  if(!window.iappyx){ statusMsg=''; return; }
+  statusMsg = 'Getting location…';
+  statusFade = 1.0;
+  try {
+    const loc = await iappyx.cb(id => iappyxLocation.getLocation(id));
+    if(!loc || !loc.ok){
+      statusMsg = 'Location unavailable';
+      statusTimer = Date.now();
+      if(window.iappyx) iappyx.log('Location error: ' + (loc && loc.error));
+      return;
+    }
+    locationOk = true;
+    statusMsg = 'Fetching weather…';
+    const lat = loc.lat.toFixed(4), lon = loc.lon.toFixed(4);
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&current=temperature_2m,apparent_temperature,weathercode,is_day`;
+    const resp = await iappyx.cb(id => iappyxHttpClient.request(
+      JSON.stringify({url, method:'GET', timeoutMs:15000}), id));
+    if(!resp || !resp.ok || !resp.body) throw new Error('HTTP error');
+    const data = JSON.parse(resp.body);
+    const cw = data.current_weather || (data.current && {
+      weathercode: data.current.weathercode,
+      temperature: data.current.temperature_2m,
+      is_day: data.current.is_day
+    });
+    if(!cw) throw new Error('No current weather');
+    const code = cw.weathercode;
+    const isDay = (cw.is_day === 1 || cw.is_day === true);
+    const temp = Math.round(cw.temperature !== undefined ? cw.temperature : cw.temperature_2m);
+    const newScene = decodeWMO(code, isDay);
+    weatherTemp = temp;
+    if(newScene !== weatherScene){
+      weatherScene = newScene;
+      initScene(weatherScene);
+    }
+    const info = sceneInfo(weatherScene);
+    weatherEmoji = info.emoji;
+    weatherLabel = info.label;
+    statusMsg = '';
+    if(window.iappyx) iappyx.log('Weather OK: ' + weatherScene + ' ' + temp + '°C');
+  } catch(e){
+    statusMsg = 'Weather unavailable';
+    statusTimer = Date.now();
+    if(window.iappyx) iappyx.log('Weather error: ' + e);
+  }
+}
+
+function scheduleWeather(){
+  const now = Date.now();
+  if(now - lastWeatherFetch > WEATHER_INTERVAL){
+    lastWeatherFetch = now;
+    fetchWeather();
+  }
+  setTimeout(scheduleWeather, 60000);
+}
+
+// ===================== SCENE STATE =====================
+
+let t = 0;
+let sceneState = {};
+
+function initScene(scene){
+  const W = canvas.width, H = canvas.height;
+  sceneState = {};
+
+  if(scene === 'CLEAR_DAY'){
+    sceneState.particles = Array.from({length:80}, () => ({
+      x: Math.random()*W, y: Math.random()*H,
+      r: Math.random()*2+0.5, speed: Math.random()*0.4+0.1,
+      opacity: Math.random()*0.4+0.1
+    }));
+    sceneState.clouds = [
+      {x:W*0.1,  y:H*0.22, scale:1.2, speed:0.15},
+      {x:W*0.55, y:H*0.15, scale:0.9, speed:0.10},
+      {x:W*0.75, y:H*0.30, scale:1.0, speed:0.13},
+    ];
+  }
+
+  if(scene === 'CLEAR_NIGHT'){
+    sceneState.stars = Array.from({length:280}, () => ({
+      x: Math.random()*W, y: Math.random()*H*0.88,
+      r: Math.random()*1.6+0.3,
+      phase: Math.random()*Math.PI*2,
+      speed: Math.random()*1.5+0.5
+    }));
+    sceneState.shootingStar = null;
+    sceneState.lastShoot = 0;
+  }
+
+  if(scene === 'PARTLY_CLOUDY_DAY'){
+    sceneState.clouds = Array.from({length:5}, (_,i) => ({
+      x: Math.random()*W, y: H*0.08 + i*H*0.06,
+      scale: 0.7 + i*0.15, speed: 0.05 + i*0.04, depth: i
+    }));
+    sceneState.particles = Array.from({length:40}, () => ({
+      x: Math.random()*W, y: Math.random()*H,
+      r: Math.random()*1.5+0.5, speed: Math.random()*0.3+0.1,
+      opacity: Math.random()*0.3+0.1
+    }));
+  }
+
+  if(scene === 'RAIN'){
+    sceneState.drops = Array.from({length:320}, () => ({
+      x: Math.random()*W, y: Math.random()*H,
+      len: Math.random()*15+10, speed: Math.random()*8+10,
+      opacity: Math.random()*0.4+0.3
+    }));
+    sceneState.ripples = [];
+    sceneState.lastLightning = 0;
+    sceneState.lightningAlpha = 0;
+    sceneState.nextLightning = 8000 + Math.random()*4000;
+  }
+
+  if(scene === 'THUNDERSTORM'){
+    sceneState.drops = Array.from({length:420}, () => ({
+      x: Math.random()*W, y: Math.random()*H,
+      len: Math.random()*18+12, speed: Math.random()*12+14,
+      opacity: Math.random()*0.5+0.3
+    }));
+    sceneState.lightningFlash = 0;
+    sceneState.lightningBolt = null;
+    sceneState.nextBolt = 2000 + Math.random()*3000;
+    sceneState.lastBolt = 0;
+  }
+
+  if(scene === 'SNOW'){
+    sceneState.flakes = Array.from({length:210}, () => ({
+      x: Math.random()*W, y: Math.random()*H,
+      r: Math.random()*3+1, speed: Math.random()*1.2+0.4,
+      wobble: Math.random()*Math.PI*2,
+      wobbleSpeed: Math.random()*0.03+0.01,
+      opacity: Math.random()*0.5+0.4
+    }));
+    sceneState.drift = buildSnowDrift(W, H);
+  }
+
+  if(scene === 'FOG'){
+    sceneState.strips = Array.from({length:12}, (_,i) => ({
+      y: H*0.05 + i*(H*0.09),
+      thickness: Math.random()*80+40,
+      speed: (Math.random()-0.5)*0.3,
+      opacity: Math.random()*0.18+0.07,
+      phase: Math.random()*Math.PI*2
+    }));
+  }
+
+  if(scene === 'CLOUDY'){
+    sceneState.clouds = Array.from({length:6}, (_,i) => ({
+      x: Math.random()*W, y: H*0.04 + i*H*0.11,
+      scale: 1.4 + Math.random()*0.9,
+      speed: 0.06 + Math.random()*0.06, dark: true
+    }));
+  }
+}
+
+function buildSnowDrift(W, H){
+  const pts = [];
+  const seg = 14;
+  for(let i=0; i<=seg; i++){
+    const x = (i/seg)*W;
+    const h = H*0.06 + Math.sin(i*0.7)*H*0.04 + Math.cos(i*1.3)*H*0.02;
+    pts.push({x, y:H-h});
+  }
+  pts.push({x:W, y:H}, {x:0, y:H});
+  return pts;
+}
+
+// ===================== DRAW HELPERS =====================
+
+function drawFluffyCloud(cx, cy, scale, darkMode){
+  const circles = [
+    [0,0,40],[30,-15,32],[60,5,38],[-28,-10,30],[88,-5,30],[50,-30,25]
+  ];
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(scale, scale);
+  for(const [ox,oy,r] of circles){
+    ctx.beginPath();
+    ctx.arc(ox, oy, r, 0, Math.PI*2);
+    ctx.fillStyle = darkMode ? 'rgba(75,85,105,0.88)' : 'rgba(255,255,255,0.88)';
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawSun(cx, cy, time){
+  const R = 55;
+  const grd = ctx.createRadialGradient(cx, cy, R*0.5, cx, cy, R*2.5);
+  grd.addColorStop(0,'rgba(255,240,120,0.5)');
+  grd.addColorStop(1,'rgba(255,200,50,0)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, R*2.5, 0, Math.PI*2);
+  ctx.fillStyle = grd;
+  ctx.fill();
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(time*0.2);
+  for(let i=0;i<12;i++){
+    ctx.save();
+    ctx.rotate(i*(Math.PI*2/12));
+    ctx.beginPath();
+    ctx.moveTo(R+5,0);
+    ctx.lineTo(R+28,-5);
+    ctx.lineTo(R+36,0);
+    ctx.lineTo(R+28,5);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255,230,80,0.6)';
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+
+  const sunGrd = ctx.createRadialGradient(cx,cy,0,cx,cy,R);
+  sunGrd.addColorStop(0,'rgba(255,255,200,1)');
+  sunGrd.addColorStop(0.7,'rgba(255,220,50,1)');
+  sunGrd.addColorStop(1,'rgba(255,180,0,0.9)');
+  ctx.beginPath();
+  ctx.arc(cx,cy,R,0,Math.PI*2);
+  ctx.fillStyle = sunGrd;
+  ctx.fill();
+}
+
+function drawMoon(cx, cy){
+  const R = 45;
+  const halo = ctx.createRadialGradient(cx,cy,R,cx,cy,R*2.8);
+  halo.addColorStop(0,'rgba(255,255,200,0.22)');
+  halo.addColorStop(1,'rgba(255,220,100,0)');
+  ctx.beginPath();
+  ctx.arc(cx,cy,R*2.8,0,Math.PI*2);
+  ctx.fillStyle = halo;
+  ctx.fill();
+
+  const moonGrd = ctx.createRadialGradient(cx-R*0.25,cy-R*0.25,0,cx,cy,R);
+  moonGrd.addColorStop(0,'rgba(255,255,230,1)');
+  moonGrd.addColorStop(0.8,'rgba(220,220,180,1)');
+  moonGrd.addColorStop(1,'rgba(180,180,140,0.9)');
+  ctx.beginPath();
+  ctx.arc(cx,cy,R,0,Math.PI*2);
+  ctx.fillStyle = moonGrd;
+  ctx.fill();
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx,cy,R,0,Math.PI*2);
+  ctx.clip();
+  const craters = [[8,-10,8,0.07],[-10,12,5,0.06],[14,8,4,0.05]];
+  for(const [ox,oy,cr,a] of craters){
+    const g = ctx.createRadialGradient(cx+ox,cy+oy,0,cx+ox,cy+oy,cr);
+    g.addColorStop(0,`rgba(160,160,130,${a*2})`);
+    g.addColorStop(1,'rgba(200,200,170,0)');
+    ctx.beginPath();
+    ctx.arc(cx+ox,cy+oy,cr,0,Math.PI*2);
+    ctx.fillStyle = g;
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawHillSilhouette(H, W, color){
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  const segments = 8;
+  for(let i=0; i<=segments; i++){
+    const x = (i/segments)*W;
+    const y = H - (H*0.08 + Math.sin(i*0.9)*H*0.04 + Math.cos(i*1.7)*H*0.025);
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo(W, H);
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function drawLightningBolt(x1,y1,x2,y2,depth,alpha){
+  ctx.save();
+  ctx.strokeStyle = `rgba(255,255,200,${alpha})`;
+  ctx.shadowColor = 'rgba(200,220,255,0.9)';
+  ctx.shadowBlur = 20;
+  ctx.lineWidth = 2.5;
+  const pts = generateBolt(x1,y1,x2,y2,4);
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x,pts[0].y);
+  for(const p of pts) ctx.lineTo(p.x,p.y);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = `rgba(255,255,255,${alpha*0.5})`;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function generateBolt(x1,y1,x2,y2,depth){
+  if(depth===0) return [{x:x1,y:y1},{x:x2,y:y2}];
+  const mx = (x1+x2)/2 + (Math.random()-0.5)*(x2-x1)*0.8;
+  const my = (y1+y2)/2 + (Math.random()-0.5)*(y2-y1)*0.4;
+  return [...generateBolt(x1,y1,mx,my,depth-1),...generateBolt(mx,my,x2,y2,depth-1)];
+}
+
+// ===================== DRAW SCENES =====================
+
+function drawClearDay(dt){
+  const W=canvas.width, H=canvas.height;
+  const tiltX = accelX * 0.004;
+  const bg = ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#4aa8e8');
+  bg.addColorStop(0.5,'#87ceeb');
+  bg.addColorStop(1,'#f5d080');
+  ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+
+  drawSun(W*(0.72 + tiltX), H*0.18, t);
+
+  for(const cl of sceneState.clouds){
+    cl.x += (cl.speed + tiltX*0.5) * dt * 0.06;
+    if(cl.x > W+220) cl.x = -220;
+    if(cl.x < -220) cl.x = W+220;
+    drawFluffyCloud(cl.x, cl.y, cl.scale, false);
+  }
+  for(const p of sceneState.particles){
+    p.y -= p.speed * dt * 0.04;
+    if(p.y < 0){ p.y = H; p.x = Math.random()*W; }
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(255,255,230,${p.opacity})`;
+    ctx.fill();
+  }
+  drawHillSilhouette(H, W, 'rgba(80,150,60,0.55)');
+}
+
+function drawClearNight(dt){
+  const W=canvas.width, H=canvas.height;
+  const tiltX = accelX * 0.004;
+  const bg = ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#12123a');
+  bg.addColorStop(0.6,'#0d0d2b');
+  bg.addColorStop(1,'#060618');
+  ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+
+  for(const s of sceneState.stars){
+    const op = 0.35 + 0.55*Math.sin(s.phase + t*s.speed);
+    ctx.beginPath();
+    ctx.arc(s.x + tiltX*20, s.y, s.r, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(255,255,255,${op.toFixed(2)})`;
+    ctx.fill();
+  }
+
+  // shooting star
+  const now = t*1000;
+  if(!sceneState.lastShoot) sceneState.lastShoot = now;
+  if(now - sceneState.lastShoot > 14000){
+    sceneState.lastShoot = now;
+    sceneState.shootingStar = {
+      x: Math.random()*W*0.5, y: Math.random()*H*0.3,
+      vx: 6+Math.random()*4, vy: 3+Math.random()*3,
+      len: 120+Math.random()*80, life: 1.0
+    };
+  }
+  if(sceneState.shootingStar){
+    const ss = sceneState.shootingStar;
+    ss.x += ss.vx * dt * 0.06;
+    ss.y += ss.vy * dt * 0.06;
+    ss.life -= 0.012 * dt * 0.06;
+    if(ss.life > 0){
+      const alpha = ss.life*0.9;
+      const grd = ctx.createLinearGradient(ss.x,ss.y,ss.x-ss.vx*15,ss.y-ss.vy*15);
+      grd.addColorStop(0,`rgba(255,255,255,${alpha.toFixed(2)})`);
+      grd.addColorStop(1,'rgba(255,255,255,0)');
+      ctx.beginPath();
+      ctx.moveTo(ss.x,ss.y);
+      ctx.lineTo(ss.x-ss.len*0.7, ss.y-ss.len*0.35);
+      ctx.strokeStyle = grd;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    } else {
+      sceneState.shootingStar = null;
+    }
+  }
+
+  drawMoon(W*(0.78 + tiltX*0.5), H*0.15);
+  drawHillSilhouette(H, W, 'rgba(5,5,15,0.97)');
+}
+
+function drawPartlyCloudyDay(dt){
+  const W=canvas.width, H=canvas.height;
+  const tiltX = accelX * 0.004;
+  const bg = ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#4a9fd4');
+  bg.addColorStop(1,'#aad8f0');
+  ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+
+  ctx.save();
+  ctx.globalAlpha = 0.7;
+  drawSun(W*(0.70 + tiltX), H*0.18, t);
+  ctx.restore();
+
+  for(const cl of sceneState.clouds){
+    cl.x += (cl.speed + tiltX*0.4) * dt * 0.06;
+    if(cl.x > W+300) cl.x = -300;
+    if(cl.x < -300) cl.x = W+300;
+    ctx.globalAlpha = 0.65 + cl.depth*0.06;
+    drawFluffyCloud(cl.x, cl.y, cl.scale, false);
+    ctx.globalAlpha = 1;
+  }
+  for(const p of sceneState.particles){
+    p.y -= p.speed * dt * 0.04;
+    if(p.y < 0){ p.y = H; p.x = Math.random()*W; }
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(200,230,255,${p.opacity})`;
+    ctx.fill();
+  }
+  drawHillSilhouette(H, W, 'rgba(70,130,50,0.5)');
+}
+
+function drawRain(dt){
+  const W=canvas.width, H=canvas.height;
+  const now = t*1000;
+  const bg = ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#252f3a');
+  bg.addColorStop(1,'#141e27');
+  ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+
+  // distant hills barely visible
+  drawHillSilhouette(H, W, 'rgba(20,30,40,0.8)');
+
+  if(sceneState.lightningAlpha > 0){
+    ctx.fillStyle = `rgba(200,220,255,${sceneState.lightningAlpha.toFixed(2)})`;
+    ctx.fillRect(0,0,W,H);
+    sceneState.lightningAlpha -= 0.055 * dt * 0.06;
+  }
+  if(!sceneState.lastLightning) sceneState.lastLightning = now;
+  if(now - sceneState.lastLightning > sceneState.nextLightning){
+    sceneState.lastLightning = now;
+    sceneState.lightningAlpha = 0.22 + Math.random()*0.14;
+    sceneState.nextLightning = 7000 + Math.random()*5000;
+  }
+
+  const windX = accelX * 0.08;
+  for(const d of sceneState.drops){
+    d.x += (-1.2 + windX) * dt * 0.06;
+    d.y += d.speed * dt * 0.06;
+    if(d.y > H){
+      d.y = -d.len; d.x = Math.random()*W;
+      if(Math.random()<0.12){
+        sceneState.ripples.push({x:d.x, y:H-2, r:0, maxR:18+Math.random()*18, life:1});
+      }
+    }
+    if(d.x < 0) d.x += W;
+    if(d.x > W) d.x -= W;
+    ctx.beginPath();
+    ctx.moveTo(d.x, d.y);
+    ctx.lineTo(d.x + d.len*0.18, d.y - d.len);
+    ctx.strokeStyle = `rgba(140,175,215,${d.opacity})`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  sceneState.ripples = sceneState.ripples.filter(r=>r.life>0);
+  for(const r of sceneState.ripples){
+    r.r += 0.45 * dt * 0.06 * 16;
+    r.life -= 0.024 * dt * 0.06 * 16;
+    ctx.beginPath();
+    ctx.ellipse(r.x, r.y, r.r, r.r*0.38, 0, 0, Math.PI*2);
+    ctx.strokeStyle = `rgba(140,195,235,${(r.life*0.38).toFixed(2)})`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+}
+
+function drawThunderstorm(dt){
+  const W=canvas.width, H=canvas.height;
+  const now = t*1000;
+  const bg = ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#0c0c16');
+  bg.addColorStop(1,'#161622');
+  ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+
+  drawHillSilhouette(H, W, 'rgba(8,8,16,0.95)');
+
+  if(sceneState.lightningFlash > 0){
+    ctx.fillStyle = `rgba(215,225,255,${(sceneState.lightningFlash*0.48).toFixed(2)})`;
+    ctx.fillRect(0,0,W,H);
+    sceneState.lightningFlash -= 0.075 * dt * 0.06;
+  }
+
+  if(sceneState.lightningBolt){
+    const b = sceneState.lightningBolt;
+    b.life -= 0.065 * dt * 0.06;
+    if(b.life > 0) drawLightningBolt(b.x1,b.y1,b.x2,b.y2,3,b.life);
+    else sceneState.lightningBolt = null;
+  }
+
+  if(!sceneState.lastBolt) sceneState.lastBolt = now;
+  if(now - sceneState.lastBolt > sceneState.nextBolt){
+    sceneState.lastBolt = now;
+    sceneState.nextBolt = 1500 + Math.random()*2500;
+    sceneState.lightningFlash = 1.0;
+    sceneState.lightningBolt = {
+      x1: W*0.2 + Math.random()*W*0.6, y1: 0,
+      x2: W*0.1 + Math.random()*W*0.8, y2: H*0.6 + Math.random()*H*0.3,
+      life: 1.0
+    };
+  }
+
+  const windX = accelX * 0.10;
+  for(const d of sceneState.drops){
+    d.x += (-2 + windX) * dt * 0.06;
+    d.y += d.speed * dt * 0.06;
+    if(d.y > H){ d.y = -d.len; d.x = Math.random()*W; }
+    if(d.x < 0) d.x += W;
+    if(d.x > W) d.x -= W;
+    ctx.beginPath();
+    ctx.moveTo(d.x, d.y);
+    ctx.lineTo(d.x + d.len*0.22, d.y - d.len);
+    ctx.strokeStyle = `rgba(110,130,195,${d.opacity})`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+}
+
+function drawSnow(dt){
+  const W=canvas.width, H=canvas.height;
+  const bg = ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#090928');
+  bg.addColorStop(0.5,'#0d1540');
+  bg.addColorStop(1,'#1a2060');
+  ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+
+  const drift = sceneState.drift;
+  ctx.beginPath();
+  ctx.moveTo(drift[0].x, drift[0].y);
+  for(let i=1;i<drift.length;i++) ctx.lineTo(drift[i].x, drift[i].y);
+  ctx.closePath();
+  const dg = ctx.createLinearGradient(0,H*0.9,0,H);
+  dg.addColorStop(0,'rgba(195,208,238,0.96)');
+  dg.addColorStop(1,'rgba(220,230,255,1)');
+  ctx.fillStyle = dg; ctx.fill();
+
+  const windX = accelX * 0.06;
+  for(const f of sceneState.flakes){
+    f.wobble += f.wobbleSpeed * dt * 0.06;
+    f.y += f.speed * dt * 0.06;
+    f.x += (Math.sin(f.wobble)*0.5 + windX * f.r);
+    if(f.y > H+f.r){ f.y = -f.r; f.x = Math.random()*W; }
+    if(f.x < -f.r) f.x += W;
+    if(f.x > W+f.r) f.x -= W;
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, f.r, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(220,230,255,${f.opacity})`;
+    ctx.fill();
+  }
+}
+
+function drawFog(dt){
+  const W=canvas.width, H=canvas.height;
+  const bg = ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#aab3bc');
+  bg.addColorStop(1,'#d4d9de');
+  ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+
+  drawHillSilhouette(H, W, 'rgba(100,110,115,0.4)');
+
+  for(const s of sceneState.strips){
+    s.phase += 0.003 * dt * 0.06;
+    s.y += s.speed * dt * 0.06;
+    if(s.y > H) s.y -= H*1.1;
+    if(s.y < -s.thickness) s.y += H*1.1;
+    const baseY = s.y + Math.sin(s.phase)*14;
+    const fg = ctx.createLinearGradient(0,baseY,0,baseY+s.thickness);
+    fg.addColorStop(0,'rgba(235,240,245,0)');
+    fg.addColorStop(0.4,`rgba(235,240,245,${s.opacity})`);
+    fg.addColorStop(0.6,`rgba(235,240,245,${s.opacity})`);
+    fg.addColorStop(1,'rgba(235,240,245,0)');
+    ctx.fillStyle = fg;
+    ctx.fillRect(0, baseY, W, s.thickness);
+  }
+}
+
+function drawCloudy(dt){
+  const W=canvas.width, H=canvas.height;
+  const tiltX = accelX * 0.003;
+  const bg = ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#424f5e');
+  bg.addColorStop(1,'#687080');
+  ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+
+  for(const cl of sceneState.clouds){
+    cl.x += (cl.speed + tiltX) * dt * 0.06;
+    if(cl.x > W+360) cl.x = -360;
+    if(cl.x < -360) cl.x = W+360;
+    drawFluffyCloud(cl.x, cl.y, cl.scale, true);
+  }
+  drawHillSilhouette(H, W, 'rgba(40,48,55,0.7)');
+}
+
+// ===================== HUD =====================
+
+function drawHUD(dt){
+  const W=canvas.width, H=canvas.height;
+
+  // Status message during loading / error
+  if(statusMsg){
+    const age = Date.now() - statusTimer;
+    let alpha = 0.8;
+    if(statusTimer > 0 && age > 3000) alpha = Math.max(0, 0.8 - (age-3000)/2000);
+    if(alpha > 0){
+      ctx.save();
+      ctx.font = '13px sans-serif';
+      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      ctx.textAlign = 'center';
+      ctx.fillText(statusMsg, W/2, H - 80);
+      ctx.restore();
+    }
+    if(statusTimer > 0 && age > 5000) statusMsg = '';
+    return;
+  }
+
+  if(weatherTemp === null) return;
+
+  const tempStr = weatherTemp + '°C';
+  const labelStr = weatherLabel;
+
+  ctx.save();
+  ctx.font = 'bold 14px sans-serif';
+  const tW = ctx.measureText(tempStr + '  ' + labelStr).width;
+  const pw = tW + 32;
+  const ph = 34;
+  const px = 16;
+  const py = H - 56;
+  const r = ph/2;
+
+  ctx.beginPath();
+  ctx.moveTo(px+r, py);
+  ctx.lineTo(px+pw-r, py);
+  ctx.arcTo(px+pw, py, px+pw, py+r, r);
+  ctx.lineTo(px+pw, py+ph-r);
+  ctx.arcTo(px+pw, py+ph, px+pw-r, py+ph, r);
+  ctx.lineTo(px+r, py+ph);
+  ctx.arcTo(px, py+ph, px, py+ph-r, r);
+  ctx.lineTo(px, py+r);
+  ctx.arcTo(px, py, px+r, py, r);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.textAlign = 'left';
+  ctx.fillText(tempStr + '  ' + labelStr, px+16, py+ph/2+5);
+  ctx.restore();
+
+  // Emoji separately (larger, to the right)
+  ctx.save();
+  ctx.font = '18px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(weatherEmoji, px + pw + 10, py + ph/2 + 7);
+  ctx.restore();
+}
+
+// ===================== MAIN LOOP =====================
+
+let lastTime = 0;
+initScene(weatherScene);
+
+function frame(ts){
+  requestAnimationFrame(frame);
+  if(!visible) return;
+
+  const dt = Math.min(ts - lastTime, 100);
+  lastTime = ts;
+  t = ts / 1000;
+
+  const W=canvas.width, H=canvas.height;
+
+  ctx.fillStyle = '#0d0d2b';
+  ctx.fillRect(0,0,W,H);
+
+  try {
+    switch(weatherScene){
+      case 'CLEAR_DAY':         drawClearDay(dt);         break;
+      case 'CLEAR_NIGHT':       drawClearNight(dt);       break;
+      case 'PARTLY_CLOUDY_DAY': drawPartlyCloudyDay(dt);  break;
+      case 'RAIN':              drawRain(dt);             break;
+      case 'THUNDERSTORM':      drawThunderstorm(dt);     break;
+      case 'SNOW':              drawSnow(dt);             break;
+      case 'FOG':               drawFog(dt);              break;
+      case 'CLOUDY':            drawCloudy(dt);           break;
+      default:                  drawClearNight(dt);       break;
+    }
+  } catch(e){
+    const bg = ctx.createLinearGradient(0,0,0,H);
+    bg.addColorStop(0,'#12123a');
+    bg.addColorStop(1,'#0d0d2b');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0,0,W,H);
+    if(window.iappyx) iappyx.log('Draw error: ' + e);
+  }
+
+  drawHUD(dt);
+}
+
+window.onresize = function(){
+  fit();
+  initScene(weatherScene);
+};
+
+requestAnimationFrame(frame);
+
+// Kick off weather immediately and on schedule
+scheduleWeather();
+
+})();
+</script>
+</body>
+</html>

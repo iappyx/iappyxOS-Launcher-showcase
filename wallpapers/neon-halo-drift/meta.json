@@ -1,0 +1,10 @@
+{
+  "title": "Neon Halo Drift",
+  "description": "A 3D halo of neon particles slowly orbiting through space against a deep dark background.",
+  "author": "iappyx",
+  "uses": [
+    "Vanta.js HALO (MIT) — github.com/tengbao/vanta",
+    "Three.js (MIT)"
+  ],
+  "added": "2026-04-29"
+}

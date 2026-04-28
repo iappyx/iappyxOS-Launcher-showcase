@@ -1,0 +1,10 @@
+{
+  "title": "Live map",
+  "description": "An interactive map centred on your real-time GPS location. The map pans with you as you move.",
+  "author": "iappyx",
+  "uses": [
+    "Leaflet.js (BSD-2-Clause) — leafletjs.com",
+    "OpenStreetMap tiles — openstreetmap.org"
+  ],
+  "added": "2026-04-29"
+}

@@ -1,0 +1,164 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cells flow</title>
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden;">
+<div id="bg" style="position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:0;"></div>
+<script>
+(function(){
+  'use strict';
+
+  let visible = true;
+  let vantaEffect = null;
+  let layout = {cells:[],dock:[],pageCount:1,pageWidth:0,screen:{width:innerWidth,height:innerHeight}};
+  let pageOffset = 0;
+
+  if(window.iappyx){
+    try{ layout = JSON.parse(iappyxLayout.get()); }catch(e){}
+    iappyx.onLayoutChanged = function(next){ layout = next; };
+    iappyx.onPageOffset    = function(x){ pageOffset = x; };
+    iappyx.onVisibility    = function(v){
+      visible = !!v;
+      if(vantaEffect){
+        if(!visible && vantaEffect.animationLoop){
+          // pause by removing the animation loop reference isn't clean with vanta
+          // just let RAF handle it via the wrapper below
+        }
+      }
+    };
+  }
+
+  function runScript(code){
+    var s = document.createElement('script');
+    s.textContent = code;
+    document.head.appendChild(s);
+  }
+
+  async function loadLib(url, filename){
+    if(window.iappyx){
+      let code = iappyxStorage.loadFile(filename);
+      if(code && code.length > 100){ runScript(code); return; }
+      const r = await iappyx.cb(id => iappyxHttpClient.request(
+        JSON.stringify({url: url, method:'GET', timeoutMs:30000}), id
+      ));
+      if(r.ok && r.body && r.body.length > 100){
+        iappyxStorage.saveFile(filename, r.body);
+        runScript(r.body);
+      } else {
+        throw new Error('Failed to load: ' + url + ' ' + (r.error||''));
+      }
+    } else {
+      // Fallback: inject as regular script tag with src (normal browser context)
+      await new Promise(function(resolve, reject){
+        var s = document.createElement('script');
+        s.src = url;
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+  }
+
+  function fallbackGradient(){
+    var bg = document.getElementById('bg');
+    bg.style.background = 'linear-gradient(135deg, #1a0a00 0%, #0a1a2a 50%, #001a33 100%)';
+    // gentle animated gradient via canvas fallback
+    var canvas = document.createElement('canvas');
+    canvas.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:0;';
+    canvas.width = innerWidth;
+    canvas.height = innerHeight;
+    document.body.appendChild(canvas);
+    var ctx = canvas.getContext('2d');
+    var t = 0;
+    function drawFallback(){
+      if(!visible){ requestAnimationFrame(drawFallback); return; }
+      t += 0.003;
+      var w = canvas.width, h = canvas.height;
+      var grd = ctx.createRadialGradient(
+        w*0.5 + Math.sin(t)*w*0.3,
+        h*0.5 + Math.cos(t*0.7)*h*0.3,
+        0,
+        w*0.5, h*0.5, Math.max(w,h)*0.85
+      );
+      grd.addColorStop(0, 'rgba(255,102,0,0.55)');
+      grd.addColorStop(0.5,'rgba(0,50,100,0.7)');
+      grd.addColorStop(1, 'rgba(0,10,30,1)');
+      ctx.clearRect(0,0,w,h);
+      ctx.fillStyle = '#050c15';
+      ctx.fillRect(0,0,w,h);
+      ctx.fillStyle = grd;
+      ctx.fillRect(0,0,w,h);
+      requestAnimationFrame(drawFallback);
+    }
+    requestAnimationFrame(drawFallback);
+  }
+
+  async function initVanta(){
+    try{
+      await loadLib(
+        'https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js',
+        'three-r134.js'
+      );
+      await loadLib(
+        'https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.cells.min.js',
+        'vanta-cells-0524.js'
+      );
+      if(typeof VANTA !== 'undefined' && VANTA.CELLS){
+        vantaEffect = VANTA.CELLS({
+          el: '#bg',
+          mouseControls: true,
+          touchControls: true,
+          gyroControls: false,
+          minHeight: 200.00,
+          minWidth: 200.00,
+          scale: 1.00,
+          color1: 0xff6600,
+          color2: 0x00aaff,
+          size: 1.5,
+          speed: 1.0
+        });
+
+        // Wrap vanta's internal animation to respect visibility
+        if(vantaEffect && vantaEffect.renderer){
+          var origAnimate = vantaEffect.animationLoop.bind(vantaEffect);
+          var wrappedRAF;
+          function wrappedLoop(){
+            if(!visible){
+              wrappedRAF = requestAnimationFrame(wrappedLoop);
+              return;
+            }
+            // Let vanta do one step
+            if(vantaEffect && vantaEffect.renderer){
+              vantaEffect.renderer.setAnimationLoop(null);
+            }
+            origAnimate();
+            wrappedRAF = requestAnimationFrame(wrappedLoop);
+          }
+          // Vanta manages its own RAF internally; just let it run
+          // visibility pausing is handled by letting JS slow naturally
+        }
+      } else {
+        fallbackGradient();
+      }
+    } catch(err){
+      if(window.iappyx) iappyx.log('Vanta load error: ' + err);
+      fallbackGradient();
+    }
+  }
+
+  window.addEventListener('load', function(){
+    initVanta();
+  });
+
+  // Ensure resize keeps vanta full screen
+  window.addEventListener('resize', function(){
+    if(vantaEffect && vantaEffect.resize) vantaEffect.resize();
+  });
+
+})();
+</script>
+</body>
+</html>

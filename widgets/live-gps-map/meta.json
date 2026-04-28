@@ -1,0 +1,14 @@
+{
+  "title": "Live GPS Map",
+  "description": "A small map that follows your GPS in real time. Pulsing dot shows where you are; the map pans with you as you move.",
+  "author": "iappyx",
+  "bridges": [
+    "location",
+    "storage",
+    "vibration"
+  ],
+  "uses": [
+    "Leaflet.js (BSD-2-Clause) — leafletjs.com"
+  ],
+  "added": "2026-04-29"
+}

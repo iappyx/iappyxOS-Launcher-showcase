@@ -1,0 +1,11 @@
+{
+  "title": "QR & Barcode Scanner",
+  "description": "Scans both QR codes and 1D barcodes through the camera. Copies the result to the clipboard, or opens it directly if it's a URL or phone number.",
+  "author": "iappyx",
+  "bridges": [
+    "clipboard",
+    "intent",
+    "storage"
+  ],
+  "added": "2026-04-29"
+}

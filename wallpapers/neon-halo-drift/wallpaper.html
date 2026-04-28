@@ -1,0 +1,269 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Neon Halo Drift</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;}
+  #vanta-bg{position:fixed;inset:0;width:100vw;height:100vh;}
+  #fallback{position:fixed;inset:0;display:none;}
+</style>
+</head>
+<body>
+<div id="vanta-bg"></div>
+<canvas id="fallback-canvas" style="position:fixed;inset:0;width:100vw;height:100vh;display:block;"></canvas>
+<script>
+(function(){
+
+  const el = document.getElementById('vanta-bg');
+  const fc = document.getElementById('fallback-canvas');
+  let vantaEffect = null;
+  let visible = true;
+  let pageOffset = 0;
+  let accelX = 0, accelY = 0;
+  let vantaLoaded = false;
+  let animFrameId = null;
+
+  // Bridge setup
+  if(window.iappyx){
+    iappyx.onVisibility = v => { visible = !!v; };
+    iappyx.onPageOffset = x => { pageOffset = x; };
+    iappyx.onAccelerometer = (x, y, z) => {
+      accelX = accelX * 0.9 + x * 0.1;
+      accelY = accelY * 0.9 + y * 0.1;
+    };
+    iappyx.enableAccelerometer(true);
+  }
+
+  function runScript(code){
+    var s = document.createElement('script');
+    s.textContent = code;
+    document.head.appendChild(s);
+  }
+
+  async function loadLib(url, filename){
+    let code = null;
+    try { code = iappyxStorage.loadFile(filename); } catch(e){}
+    if(code && code.length > 100){ runScript(code); return true; }
+    try {
+      const r = await iappyx.cb(id =>
+        iappyxHttpClient.request(JSON.stringify({url, method:'GET', timeoutMs:30000}), id)
+      );
+      if(!r.ok || !r.body || r.body.length < 100) return false;
+      try { iappyxStorage.saveFile(filename, r.body); } catch(e){}
+      runScript(r.body);
+      return true;
+    } catch(e){ return false; }
+  }
+
+  async function initVanta(){
+    try {
+      const threeOk = await loadLib(
+        'https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js',
+        'three-0134.js'
+      );
+      if(!threeOk || !window.THREE) throw new Error('THREE failed');
+
+      const haloOk = await loadLib(
+        'https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.halo.min.js',
+        'vanta-halo-0524.js'
+      );
+      if(!haloOk || !window.VANTA || !window.VANTA.HALO) throw new Error('VANTA.HALO failed');
+
+      // Clear fallback canvas
+      fc.style.display = 'none';
+      el.style.display = 'block';
+
+      vantaEffect = VANTA.HALO({
+        el: el,
+        THREE: window.THREE,
+        mouseControls: true,
+        touchControls: true,
+        gyroControls: false,
+        minHeight: 200.00,
+        minWidth: 200.00,
+        baseColor: 0x0d0030,
+        backgroundColor: 0x050010,
+        amplitudeFactor: 1.5,
+        size: 1.8,
+        xOffset: 0.0,
+        yOffset: 0.0
+      });
+
+      vantaLoaded = true;
+      startVantaDrive();
+
+    } catch(e){
+      if(window.iappyx) iappyx.log('Vanta HALO failed: ' + e.message);
+      fc.style.display = 'block';
+      startFallback();
+    }
+  }
+
+  // Gently drive Vanta params from accel + pageOffset
+  let vantaDriveFrame = null;
+  function startVantaDrive(){
+    let t = 0;
+    function drive(){
+      vantaDriveFrame = requestAnimationFrame(drive);
+      if(!visible) return;
+      if(!vantaEffect) return;
+      t += 0.008;
+      // Pulse amplitude
+      const pulse = 1.3 + 0.4 * Math.sin(t * 0.7);
+      // Drift xOffset based on pageOffset + accel
+      const xDrift = (pageOffset - 0.5) * 0.15 + accelX * 0.008;
+      const yDrift = accelY * 0.008;
+      try {
+        vantaEffect.setOptions({
+          amplitudeFactor: pulse,
+          xOffset: xDrift,
+          yOffset: yDrift
+        });
+      } catch(e){}
+    }
+    drive();
+  }
+
+  // ─── Fallback: canvas halo drawn with 2D API ─────────────────────────────
+  function startFallback(){
+    const ctx = fc.getContext('2d');
+    fc.width = innerWidth;
+    fc.height = innerHeight;
+    window.addEventListener('resize', ()=>{
+      fc.width = innerWidth;
+      fc.height = innerHeight;
+    });
+
+    const NEON = [
+      [80,  0,  220],   // purple
+      [0,   80, 255],   // blue
+      [0,   200, 255],  // cyan
+      [120, 0,  255],   // violet
+      [0,   255, 200],  // teal
+      [60,  0,  180],   // deep purple
+    ];
+
+    const NUM_PARTICLES = 260;
+    const particles = [];
+    for(let i = 0; i < NUM_PARTICLES; i++){
+      const ring = Math.random() < 0.7 ? 0 : 1; // two rings
+      const colIdx = Math.floor(Math.random() * NEON.length);
+      const col = NEON[colIdx];
+      particles.push({
+        angle:  Math.random() * Math.PI * 2,
+        speed:  (0.003 + Math.random() * 0.004) * (Math.random()<0.5?1:-1),
+        radius: ring === 0
+          ? 0.22 + Math.random() * 0.05
+          : 0.30 + Math.random() * 0.07,
+        tilt:   Math.PI / 4 + (Math.random() - 0.5) * 0.5,
+        yBias:  (Math.random() - 0.5) * 0.06,
+        size:   1.0 + Math.random() * 2.5,
+        alpha:  0.3 + Math.random() * 0.7,
+        r: col[0], g: col[1], b: col[2],
+        phase: Math.random() * Math.PI * 2
+      });
+    }
+
+    let t = 0;
+    function draw(){
+      if(!visible){ animFrameId = requestAnimationFrame(draw); return; }
+      t += 0.012;
+
+      const W = fc.width, H = fc.height;
+      const cx = W * 0.5, cy = H * 0.5;
+
+      // Dark bg with slight trail
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = '#050010';
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+
+      // Central glow
+      const glowR = Math.min(W,H) * (0.12 + 0.02 * Math.sin(t * 0.8));
+      const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowR);
+      grd.addColorStop(0, 'rgba(80,0,200,0.35)');
+      grd.addColorStop(0.5,'rgba(40,0,120,0.15)');
+      grd.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.globalAlpha = 0.6 + 0.15 * Math.sin(t * 1.1);
+      ctx.fillStyle = grd;
+      ctx.fillRect(0,0,W,H);
+      ctx.globalAlpha = 1;
+
+      // Halo ring glow
+      const baseR = Math.min(W,H) * (0.26 + 0.025*Math.sin(t*0.5));
+      const ringGrd = ctx.createRadialGradient(cx, cy, baseR*0.75, cx, cy, baseR*1.2);
+      ringGrd.addColorStop(0,'rgba(60,0,200,0.0)');
+      ringGrd.addColorStop(0.35,'rgba(80,0,255,0.12)');
+      ringGrd.addColorStop(0.55,'rgba(0,180,255,0.18)');
+      ringGrd.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = ringGrd;
+      ctx.fillRect(0,0,W,H);
+      ctx.globalAlpha = 1;
+
+      // Update & draw particles
+      for(let i = 0; i < particles.length; i++){
+        const p = particles[i];
+        p.angle += p.speed + accelX * 0.00015;
+
+        const baseRadius = Math.min(W,H) * p.radius * (1 + 0.04*Math.sin(t*0.7 + p.phase));
+        // Project 3D ellipse (tilted ring)
+        const cosA = Math.cos(p.angle);
+        const sinA = Math.sin(p.angle);
+        const tilt = p.tilt + 0.05 * Math.sin(t * 0.3);
+
+        const x3 = cosA * baseRadius;
+        const y3 = sinA * baseRadius * Math.sin(tilt) + p.yBias * Math.min(W,H);
+        // depth for scale/alpha variation
+        const depth = sinA * Math.cos(tilt);
+
+        const px = cx + x3 + accelX * 1.2;
+        const py = cy + y3 + accelY * 1.2;
+
+        // Brightness based on depth
+        const bright = 0.55 + 0.45 * ((depth + 1) * 0.5);
+        const alpha  = p.alpha * bright * (0.7 + 0.3*Math.sin(t*1.4 + p.phase));
+        const sz = p.size * (0.6 + 0.8*bright);
+
+        // Glow soft dot
+        const grad = ctx.createRadialGradient(px, py, 0, px, py, sz * 3.5);
+        grad.addColorStop(0, `rgba(${p.r},${p.g},${p.b},${Math.min(1, alpha)})`);
+        grad.addColorStop(0.4,`rgba(${p.r},${p.g},${p.b},${Math.min(1,alpha*0.5)})`);
+        grad.addColorStop(1, `rgba(${p.r},${p.g},${p.b},0)`);
+
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(px, py, sz * 3.5, 0, Math.PI*2);
+        ctx.fill();
+
+        // Bright core
+        ctx.globalAlpha = Math.min(1, alpha);
+        ctx.fillStyle = `rgb(${Math.min(255,p.r+120)},${Math.min(255,p.g+80)},${Math.min(255,p.b+120)})`;
+        ctx.beginPath();
+        ctx.arc(px, py, Math.max(0.5, sz*0.55), 0, Math.PI*2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      animFrameId = requestAnimationFrame(draw);
+    }
+    draw();
+  }
+
+  // Init
+  if(window.iappyx && window.iappyxHttpClient && window.iappyxStorage){
+    fc.style.display = 'none';
+    initVanta();
+  } else {
+    fc.style.display = 'block';
+    el.style.display = 'none';
+    startFallback();
+  }
+
+})();
+</script>
+</body>
+</html>

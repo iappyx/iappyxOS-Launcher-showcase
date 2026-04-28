@@ -1,0 +1,271 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Waves</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#020d1f;}
+  #vanta-bg{position:fixed;inset:0;width:100vw;height:100vh;z-index:0;}
+</style>
+</head>
+<body>
+<div id="vanta-bg"></div>
+<script>
+(function(){
+
+  var visible = true;
+  var vantaEffect = null;
+  var hueOffset = 0;
+
+  if(window.iappyx){
+    iappyx.onVisibility = function(v){ visible = !!v; };
+  }
+
+  function hslToHex(h, s, l){
+    h = h % 360; if(h < 0) h += 360;
+    s /= 100; l /= 100;
+    var a = s * Math.min(l, 1 - l);
+    function f(n){ var k = (n + h/30) % 12; return l - a * Math.max(Math.min(k-3,9-k,1),-1); }
+    function toHex(v){ return Math.round(v*255).toString(16).padStart(2,'0'); }
+    return parseInt(toHex(f(0)) + toHex(f(8)) + toHex(f(4)), 16);
+  }
+
+  function hslToRgba(h, s, l, a){
+    h = h % 360; if(h < 0) h += 360;
+    s /= 100; l /= 100;
+    var ca = s * Math.min(l, 1 - l);
+    function f(n){ var k = (n + h/30) % 12; return l - ca * Math.max(Math.min(k-3,9-k,1),-1); }
+    var r = Math.round(f(0)*255), g = Math.round(f(8)*255), b = Math.round(f(4)*255);
+    return 'rgba('+r+','+g+','+b+','+a+')';
+  }
+
+  function runScript(code){
+    var s = document.createElement('script');
+    s.textContent = code;
+    document.head.appendChild(s);
+  }
+
+  async function loadLib(url, filename){
+    var code = iappyxStorage.loadFile(filename);
+    if(code && code.length > 100){
+      runScript(code);
+      return true;
+    }
+    try {
+      const r = await iappyx.cb(id =>
+        iappyxHttpClient.request(JSON.stringify({
+          url: url,
+          method: 'GET',
+          timeoutMs: 30000
+        }), id)
+      );
+      if(!r.ok || !r.body || r.body.length < 100){
+        iappyx.log('CDN fetch failed for ' + url + ': ' + (r.error || 'empty body'));
+        return false;
+      }
+      iappyxStorage.saveFile(filename, r.body);
+      runScript(r.body);
+      return true;
+    } catch(e){
+      iappyx.log('loadLib error: ' + e);
+      return false;
+    }
+  }
+
+  function fallbackGradient(){
+    var bg = document.getElementById('vanta-bg');
+    bg.style.background = 'linear-gradient(160deg,#020d1f 0%,#041e4a 35%,#0a3472 60%,#052240 100%)';
+
+    var canvas = document.createElement('canvas');
+    canvas.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;';
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    document.body.appendChild(canvas);
+
+    var ctx = canvas.getContext('2d');
+    var t = 0;
+    var colorT = 0;
+
+    function resize(){
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+
+    function drawWaves(){
+      if(!visible){ requestAnimationFrame(drawWaves); return; }
+      var w = canvas.width, h = canvas.height;
+
+      // Evolving hue: full cycle ~120 seconds at 60fps (0.007 * 60fps ~ 0.42/s, 360/0.42 ~ 857 frames ~ 14s)
+      // Slow it to ~120s: increment 0.042 deg/frame
+      colorT += 0.042;
+      var baseHue = colorT % 360;
+
+      // Update background gradient color
+      bg.style.background = 'linear-gradient(160deg,' +
+        hslToRgba(baseHue, 80, 4, 1) + ' 0%,' +
+        hslToRgba(baseHue + 20, 85, 10, 1) + ' 35%,' +
+        hslToRgba(baseHue + 35, 80, 18, 1) + ' 60%,' +
+        hslToRgba(baseHue + 10, 85, 7, 1) + ' 100%)';
+
+      ctx.clearRect(0,0,w,h);
+
+      var numWaves = 7;
+      for(var i = 0; i < numWaves; i++){
+        var progress = i / numWaves;
+        var yBase = h * 0.35 + progress * h * 0.55;
+        var amplitude = 15 + progress * 28;
+        var period = w * (0.55 + progress * 0.9);
+        var speed = (0.3 + progress * 0.35) * (i % 2 === 0 ? 1 : -1);
+        var alpha = 0.07 + progress * 0.12;
+        var waveHue = (baseHue + i * 15) % 360;
+
+        ctx.beginPath();
+        ctx.moveTo(0, h);
+        for(var x = 0; x <= w; x += 3){
+          var y = yBase
+            + Math.sin((x / period) * Math.PI * 2 + t * speed) * amplitude
+            + Math.sin((x / (period * 0.65)) * Math.PI * 2 + t * speed * 1.4 + i * 0.9) * amplitude * 0.38;
+          ctx.lineTo(x, y);
+        }
+        ctx.lineTo(w, h);
+        ctx.closePath();
+
+        var grad = ctx.createLinearGradient(0, yBase - amplitude, 0, h);
+        grad.addColorStop(0, hslToRgba(waveHue, 80, 45, alpha));
+        grad.addColorStop(0.5, hslToRgba(waveHue + 10, 75, 30, alpha * 0.7));
+        grad.addColorStop(1, hslToRgba(waveHue + 20, 70, 10, 0));
+        ctx.fillStyle = grad;
+        ctx.fill();
+      }
+
+      // subtle shimmer layer
+      for(var j = 0; j < 3; j++){
+        var shimmerY = h * (0.25 + j * 0.2) + Math.sin(t * 0.5 + j * 2.1) * 30;
+        var shimmerHue = (baseHue + 60 + j * 30) % 360;
+        var shimmerGrad = ctx.createRadialGradient(
+          w * (0.2 + j * 0.3), shimmerY, 0,
+          w * (0.2 + j * 0.3), shimmerY, w * 0.35
+        );
+        shimmerGrad.addColorStop(0, hslToRgba(shimmerHue, 90, 65, 0.05));
+        shimmerGrad.addColorStop(1, hslToRgba(shimmerHue, 80, 10, 0));
+        ctx.fillStyle = shimmerGrad;
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      t += 0.007;
+      requestAnimationFrame(drawWaves);
+    }
+    requestAnimationFrame(drawWaves);
+  }
+
+  function initVanta(){
+    try {
+      if(typeof THREE === 'undefined' || typeof VANTA === 'undefined' || typeof VANTA.WAVES === 'undefined'){
+        iappyx.log('THREE or VANTA.WAVES not defined, falling back');
+        fallbackGradient();
+        return;
+      }
+      var el = document.getElementById('vanta-bg');
+
+      // Start with a deep blue hue
+      var currentHex = hslToHex(220, 85, 20);
+
+      vantaEffect = VANTA.WAVES({
+        el: el,
+        THREE: THREE,
+        mouseControls: false,
+        touchControls: false,
+        gyroControls: false,
+        color: currentHex,
+        shininess: 70,
+        waveHeight: 22,
+        waveSpeed: 0.9,
+        zoom: 0.82
+      });
+      iappyx.log('Vanta WAVES initialized with color cycling');
+
+      if(window.iappyx){
+        iappyx.onPageOffset = function(x){
+          if(vantaEffect && vantaEffect.options){
+            vantaEffect.options.waveSpeed = 0.5 + x * 0.9;
+          }
+        };
+      }
+
+      window.addEventListener('resize', function(){
+        if(vantaEffect) vantaEffect.resize();
+      });
+
+      // Color cycling loop: full hue cycle ~90 seconds
+      // 360 degrees / (90s * 60fps) ~ 0.067 deg/frame
+      var colorHue = 220;
+      var lastTime = performance.now();
+
+      function colorLoop(now){
+        if(!visible){ requestAnimationFrame(colorLoop); return; }
+        var dt = now - lastTime;
+        lastTime = now;
+        // 0.067 deg per frame @ 60fps = ~4 deg/sec => 360/4 = 90 sec cycle
+        colorHue = (colorHue + dt * 0.004) % 360;
+
+        if(vantaEffect){
+          // Saturation stays high, lightness stays moody (15–25 range)
+          // Shift lightness slightly with hue for variety
+          var lightness = 18 + Math.sin((colorHue / 360) * Math.PI * 2) * 6;
+          var newHex = hslToHex(colorHue, 85, lightness);
+          try {
+            vantaEffect.setOptions({ color: newHex });
+          } catch(e){}
+        }
+        requestAnimationFrame(colorLoop);
+      }
+      requestAnimationFrame(colorLoop);
+
+    } catch(e){
+      iappyx.log('Vanta init error: ' + e);
+      fallbackGradient();
+    }
+  }
+
+  async function main(){
+    if(!window.iappyx || !window.iappyxStorage || !window.iappyxHttpClient){
+      fallbackGradient();
+      return;
+    }
+
+    try {
+      var threeOk = await loadLib(
+        'https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js',
+        'three-r134.js'
+      );
+      if(!threeOk){
+        fallbackGradient();
+        return;
+      }
+
+      var vantaOk = await loadLib(
+        'https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.waves.min.js',
+        'vanta-waves-0524.js'
+      );
+      if(!vantaOk){
+        fallbackGradient();
+        return;
+      }
+
+      initVanta();
+
+    } catch(e){
+      if(window.iappyx) iappyx.log('main error: ' + e);
+      fallbackGradient();
+    }
+  }
+
+  main();
+
+})();
+</script>
+</body>
+</html>

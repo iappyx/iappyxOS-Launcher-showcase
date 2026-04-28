@@ -1,0 +1,11 @@
+{
+  "title": "Weather",
+  "description": "Current conditions for your GPS location. Pulls from the free Open-Meteo API — no key needed.",
+  "author": "iappyx",
+  "bridges": [
+    "httpClient",
+    "location",
+    "storage"
+  ],
+  "added": "2026-04-29"
+}

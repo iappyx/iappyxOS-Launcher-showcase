@@ -1,0 +1,9 @@
+{
+  "title": "Morse Flashlight",
+  "description": "Type a message; the torch blinks it in Morse code — long flash for a dash, short for a dot.",
+  "author": "iappyx",
+  "bridges": [
+    "torch"
+  ],
+  "added": "2026-04-29"
+}

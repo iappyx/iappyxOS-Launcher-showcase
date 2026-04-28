@@ -1,0 +1,12 @@
+{
+  "title": "Water Tracker",
+  "description": "Tap a glass to mark it drunk. Tracks your daily intake, resets at midnight, and nudges you with a reminder if you've gone too long without a sip.",
+  "author": "iappyx",
+  "bridges": [
+    "alarm",
+    "notification",
+    "sqlite",
+    "vibration"
+  ],
+  "added": "2026-04-29"
+}
