@@ -411,6 +411,76 @@
       "description": "Tints sampled from your wallpaper, distributed across the grid",
       "author": "iappyx",
       "added": "2026-04-30"
+    },
+    {
+      "slug": "sweetheart",
+      "title": "Sweetheart",
+      "description": "Heart-shaped icons in soft pink duotone",
+      "author": "iappyx",
+      "added": "2026-04-30"
+    },
+    {
+      "slug": "squircle",
+      "title": "Squircle",
+      "description": "iOS-style squircle silhouette — softer than a rounded square, flatter than a circle",
+      "author": "iappyx",
+      "added": "2026-04-30"
+    },
+    {
+      "slug": "star",
+      "title": "Star",
+      "description": "Five-pointed star silhouette via custom SVG path",
+      "author": "iappyx",
+      "added": "2026-04-30"
+    },
+    {
+      "slug": "round",
+      "title": "Round",
+      "description": "Circular icons — every app inscribed in a perfect disc",
+      "author": "iappyx",
+      "added": "2026-04-30"
+    },
+    {
+      "slug": "hex",
+      "title": "Hex",
+      "description": "Hexagonal icons with flat-top orientation",
+      "author": "iappyx",
+      "added": "2026-04-30"
+    },
+    {
+      "slug": "hex-tiles",
+      "title": "Hex tiles",
+      "description": "Hexagonal icons with subtle film grain",
+      "author": "iappyx",
+      "added": "2026-04-30"
+    },
+    {
+      "slug": "round-mono",
+      "title": "Round mono",
+      "description": "Circular greyscale icons tinted to your Material You accent",
+      "author": "iappyx",
+      "added": "2026-04-30"
+    },
+    {
+      "slug": "cloud",
+      "title": "Cloud",
+      "description": "Soft cloud silhouette via custom SVG path",
+      "author": "iappyx",
+      "added": "2026-04-30"
+    },
+    {
+      "slug": "shield",
+      "title": "Shield",
+      "description": "Heraldic shield silhouette via custom SVG path",
+      "author": "iappyx",
+      "added": "2026-04-30"
+    },
+    {
+      "slug": "leaf",
+      "title": "Leaf",
+      "description": "Leaf silhouette via custom SVG path",
+      "author": "iappyx",
+      "added": "2026-04-30"
     }
   ]
 }

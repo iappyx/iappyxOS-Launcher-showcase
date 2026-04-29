@@ -1,0 +1,9 @@
+{
+  "slug": "cloud",
+  "name": "Cloud",
+  "subtitle": "Soft cloud silhouette via custom SVG path",
+  "shape": {
+    "kind": "custom",
+    "path": "M 30 70 C 8 70 8 48 27 47 C 27 28 55 28 60 45 C 70 30 95 36 92 52 C 110 54 108 72 88 72 Z"
+  }
+}

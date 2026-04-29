@@ -1,0 +1,9 @@
+{
+  "slug": "shield",
+  "name": "Shield",
+  "subtitle": "Heraldic shield silhouette via custom SVG path",
+  "shape": {
+    "kind": "custom",
+    "path": "M 50 4 L 92 18 L 92 50 Q 92 86 50 96 Q 8 86 8 50 L 8 18 Z"
+  }
+}

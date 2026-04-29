@@ -1,0 +1,8 @@
+{
+  "slug": "round-mono",
+  "name": "Round mono",
+  "subtitle": "Circular greyscale icons tinted to your Material You accent",
+  "shape": { "kind": "circle" },
+  "bake": [{ "op": "set_saturation", "value": 0 }],
+  "tint": { "op": "system_accent" }
+}

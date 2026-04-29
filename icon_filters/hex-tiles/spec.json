@@ -1,0 +1,10 @@
+{
+  "slug": "hex-tiles",
+  "name": "Hex tiles",
+  "subtitle": "Hexagonal icons with subtle film grain",
+  "shape": { "kind": "hexagon", "flat_top": true },
+  "bake": [
+    { "op": "set_saturation", "value": 0.85 },
+    { "op": "grain", "amount": 0.18, "size": 2 }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "slug": "hex",
+  "name": "Hex",
+  "subtitle": "Hexagonal icons with flat-top orientation",
+  "shape": { "kind": "hexagon", "flat_top": true }
+}

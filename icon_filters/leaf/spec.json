@@ -1,0 +1,9 @@
+{
+  "slug": "leaf",
+  "name": "Leaf",
+  "subtitle": "Leaf silhouette via custom SVG path",
+  "shape": {
+    "kind": "custom",
+    "path": "M 50 5 Q 95 20 90 60 Q 80 95 50 95 Q 20 95 10 60 Q 5 20 50 5 Z"
+  }
+}
