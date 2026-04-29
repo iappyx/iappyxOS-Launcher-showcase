@@ -1,0 +1,3 @@
+# Christmas Bokeh Glow
+
+A zoomed-in, heavily blurred Christmas tree filling the entire screen. The tree is a deep rich green with soft bokeh blur, creating a dreamy out-of-focus effect. Scattered across the tree are dozens of Christmas lights in all kinds of vibrant colors — red, gold, blue, green, pink, purple, cyan, warm white — each light rendered as a large soft glowing orb (bokeh circle). The lights flicker and twinkle independently at random intervals and speeds, some pulsing slowly, others flashing quickly, giving a magical festive atmosphere. The background is very dark to make the colored bokeh lights pop. A warm subtle glow emanates from the overall scene. Some lights drift very slightly as if the tree branches are gently swaying.

@@ -1,0 +1,298 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Christmas Bokeh Glow</title>
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden;">
+<canvas id="c" style="position:fixed;inset:0;width:100vw;height:100vh;display:block;"></canvas>
+<script>
+(function(){
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  function fit() {
+    canvas.width = innerWidth;
+    canvas.height = innerHeight;
+  }
+  fit();
+  window.addEventListener('resize', fit);
+
+  let visible = true;
+  let pageOffset = 0;
+
+  if (window.iappyx) {
+    iappyx.onVisibility = v => { visible = !!v; };
+    iappyx.onPageOffset = x => { pageOffset = x; };
+  }
+
+  // ── Color palette for lights ──────────────────────────────────────────────
+  const lightColors = [
+    { r: 255, g: 60,  b: 60  },  // red
+    { r: 255, g: 200, b: 40  },  // gold
+    { r: 255, g: 160, b: 20  },  // warm orange-gold
+    { r: 60,  g: 100, b: 255 },  // blue
+    { r: 40,  g: 220, b: 80  },  // green
+    { r: 255, g: 80,  b: 180 },  // pink
+    { r: 180, g: 60,  b: 255 },  // purple
+    { r: 0,   g: 220, b: 255 },  // cyan
+    { r: 255, g: 240, b: 200 },  // warm white
+    { r: 255, g: 120, b: 60  },  // amber
+    { r: 255, g: 255, b: 120 },  // pale yellow
+    { r: 100, g: 200, b: 255 },  // ice blue
+  ];
+
+  function rand(a, b) { return a + Math.random() * (b - a); }
+  function randInt(a, b) { return Math.floor(rand(a, b + 1)); }
+
+  // ── Tree silhouette definition ─────────────────────────────────────────────
+  // We define the tree as a triangle-ish shape in normalized coords [0..1]
+  // The tree fills most of the screen (zoomed in / cropped)
+  function treeWidthAt(ny) {
+    // ny = 0 at top (tip), 1 at bottom (base)
+    // Tree tapers from narrow top to wide base
+    // We'll use a slightly curved silhouette
+    if (ny < 0) return 0;
+    const layers = 3;
+    const layerFrac = (ny * layers) % 1.0;
+    const layer = Math.floor(ny * layers);
+    // Each tier flares out a bit
+    const baseWidth = ny * 0.85 + 0.05;
+    const tierBulge = Math.sin(layerFrac * Math.PI) * 0.08;
+    return Math.min(1, baseWidth + tierBulge);
+  }
+
+  // ── Generate lights ────────────────────────────────────────────────────────
+  const NUM_LIGHTS = 90;
+  const lights = [];
+
+  function createLights() {
+    lights.length = 0;
+    const W = canvas.width;
+    const H = canvas.height;
+
+    // Tree occupies a region: horizontally centered, top ~-10% to bottom ~110%
+    // (zoomed in so tree fills screen)
+    const treeCenterX = 0.5;
+    const treeTopY = -0.08;  // slightly above screen
+    const treeBottomY = 1.05; // slightly below screen
+    const treeHeight = treeBottomY - treeTopY;
+
+    for (let i = 0; i < NUM_LIGHTS; i++) {
+      // Place light within tree silhouette
+      let nx, ny, attempts = 0;
+      do {
+        ny = rand(0.02, 0.98);
+        const wy = treeWidthAt((ny - treeTopY) / treeHeight);
+        nx = rand(treeCenterX - wy * 0.5, treeCenterX + wy * 0.5);
+        attempts++;
+      } while (attempts < 30 && (nx < 0.01 || nx > 0.99));
+
+      const col = lightColors[randInt(0, lightColors.length - 1)];
+      const baseSize = rand(28, 80); // bokeh orb radius in px
+
+      // Flicker mode: 'slow', 'medium', 'fast', 'pulse'
+      const modes = ['slow', 'slow', 'medium', 'medium', 'fast', 'pulse', 'pulse'];
+      const mode = modes[randInt(0, modes.length - 1)];
+
+      let flickerSpeed;
+      if (mode === 'slow')   flickerSpeed = rand(0.3, 0.8);
+      else if (mode === 'medium') flickerSpeed = rand(0.8, 2.0);
+      else if (mode === 'fast') flickerSpeed = rand(2.5, 5.0);
+      else flickerSpeed = rand(0.5, 1.5); // pulse
+
+      lights.push({
+        nx, ny,
+        col,
+        baseSize,
+        mode,
+        flickerSpeed,
+        phase: rand(0, Math.PI * 2),
+        // Gentle drift
+        driftAmpX: rand(0.003, 0.012),
+        driftAmpY: rand(0.002, 0.008),
+        driftPhaseX: rand(0, Math.PI * 2),
+        driftPhaseY: rand(0, Math.PI * 2),
+        driftSpeedX: rand(0.15, 0.45),
+        driftSpeedY: rand(0.10, 0.35),
+        // Base brightness
+        baseBrightness: rand(0.55, 1.0),
+      });
+    }
+  }
+
+  createLights();
+  window.addEventListener('resize', createLights);
+
+  // ── Background tree layer (dark green noise) ───────────────────────────────
+  let bgCanvas = null;
+  function buildBackground() {
+    bgCanvas = document.createElement('canvas');
+    bgCanvas.width = canvas.width;
+    bgCanvas.height = canvas.height;
+    const bx = bgCanvas.getContext('2d');
+    const W = bgCanvas.width;
+    const H = bgCanvas.height;
+
+    // Very dark background
+    bx.fillStyle = '#030806';
+    bx.fillRect(0, 0, W, H);
+
+    // Draw blurry tree mass — multiple overlapping dark-green radial blobs
+    const treeCenterX = W * 0.5;
+    const treeTopY = H * -0.08;
+    const treeBottomY = H * 1.05;
+    const treeHeight = treeBottomY - treeTopY;
+
+    // Large blurred green blobs to form tree body
+    const numBlobs = 40;
+    for (let i = 0; i < numBlobs; i++) {
+      const ny = rand(0, 1);
+      const wy = treeWidthAt(ny) * W * 0.5;
+      const cx = treeCenterX + rand(-wy * 0.8, wy * 0.8);
+      const cy = treeTopY + ny * treeHeight;
+      const r = rand(W * 0.06, W * 0.22);
+
+      const gr = bx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      const g1 = randInt(30, 55);
+      const g2 = randInt(18, 32);
+      gr.addColorStop(0, `rgba(8,${g1},12,0.55)`);
+      gr.addColorStop(0.5, `rgba(4,${g2},8,0.3)`);
+      gr.addColorStop(1, 'rgba(0,0,0,0)');
+      bx.fillStyle = gr;
+      bx.beginPath();
+      bx.ellipse(cx, cy, r * rand(0.7, 1.3), r * rand(0.5, 1.0), rand(0, Math.PI), 0, Math.PI * 2);
+      bx.fill();
+    }
+
+    // Subtle warm overall ambient glow at center-bottom (warm white)
+    const ambGr = bx.createRadialGradient(W * 0.5, H * 0.7, 0, W * 0.5, H * 0.7, W * 0.7);
+    ambGr.addColorStop(0, 'rgba(60,30,5,0.18)');
+    ambGr.addColorStop(1, 'rgba(0,0,0,0)');
+    bx.fillStyle = ambGr;
+    bx.fillRect(0, 0, W, H);
+  }
+  buildBackground();
+  window.addEventListener('resize', buildBackground);
+
+  // ── Draw a single bokeh orb ────────────────────────────────────────────────
+  function drawBokeh(x, y, r, col, alpha) {
+    if (alpha <= 0.01) return;
+    const { r: cr, g: cg, b: cb } = col;
+
+    // Outer soft glow (very large, very transparent)
+    const gr1 = ctx.createRadialGradient(x, y, 0, x, y, r * 3.5);
+    gr1.addColorStop(0, `rgba(${cr},${cg},${cb},${(alpha * 0.18).toFixed(3)})`);
+    gr1.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gr1;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 3.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Mid glow
+    const gr2 = ctx.createRadialGradient(x, y, 0, x, y, r * 1.8);
+    gr2.addColorStop(0, `rgba(${cr},${cg},${cb},${(alpha * 0.55).toFixed(3)})`);
+    gr2.addColorStop(0.4, `rgba(${cr},${cg},${cb},${(alpha * 0.35).toFixed(3)})`);
+    gr2.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gr2;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 1.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Core bright disk
+    const gr3 = ctx.createRadialGradient(x, y, 0, x, y, r * 0.85);
+    gr3.addColorStop(0, `rgba(255,255,255,${(alpha * 0.90).toFixed(3)})`);
+    gr3.addColorStop(0.25, `rgba(${cr},${cg},${cb},${(alpha * 0.95).toFixed(3)})`);
+    gr3.addColorStop(0.7, `rgba(${Math.floor(cr*0.7)},${Math.floor(cg*0.7)},${Math.floor(cb*0.7)},${(alpha * 0.6).toFixed(3)})`);
+    gr3.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gr3;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.85, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Bokeh ring highlight (thin bright ring at edge of disk)
+    ctx.strokeStyle = `rgba(${cr},${cg},${cb},${(alpha * 0.5).toFixed(3)})`;
+    ctx.lineWidth = r * 0.06 + 1;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.75, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // ── Animation loop ─────────────────────────────────────────────────────────
+  let startTime = performance.now();
+  let frameCount = 0;
+
+  function tick(now) {
+    requestAnimationFrame(tick);
+    if (!visible) return;
+
+    const t = (now - startTime) * 0.001; // seconds
+    const W = canvas.width;
+    const H = canvas.height;
+
+    // Draw background tree
+    ctx.clearRect(0, 0, W, H);
+    if (bgCanvas) ctx.drawImage(bgCanvas, 0, 0);
+
+    // Gentle overall warm ambient pulse
+    const ambPulse = 0.5 + 0.5 * Math.sin(t * 0.25);
+    const ambGr = ctx.createRadialGradient(W * 0.5, H * 0.75, 0, W * 0.5, H * 0.75, W * 0.65);
+    ambGr.addColorStop(0, `rgba(80,35,5,${(0.05 + ambPulse * 0.04).toFixed(3)})`);
+    ambGr.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = ambGr;
+    ctx.fillRect(0, 0, W, H);
+
+    // Draw lights
+    for (let i = 0; i < lights.length; i++) {
+      const l = lights[i];
+      const phase = l.phase + t * l.flickerSpeed;
+
+      // Compute brightness based on mode
+      let brightness;
+      if (l.mode === 'slow') {
+        brightness = l.baseBrightness * (0.55 + 0.45 * Math.sin(phase));
+      } else if (l.mode === 'medium') {
+        brightness = l.baseBrightness * (0.5 + 0.5 * Math.sin(phase));
+      } else if (l.mode === 'fast') {
+        // Quick random-ish flicker using multiple frequencies
+        brightness = l.baseBrightness * Math.max(0.1,
+          0.5 + 0.3 * Math.sin(phase) + 0.2 * Math.sin(phase * 2.3 + 1.1)
+        );
+        // Occasional sharp off
+        if (Math.sin(phase * 3.7) < -0.7) brightness *= 0.1;
+      } else {
+        // pulse: slow swell, occasional bright peak
+        const base = 0.4 + 0.6 * Math.pow(Math.max(0, Math.sin(phase * 0.5)), 2);
+        brightness = l.baseBrightness * base;
+      }
+
+      brightness = Math.max(0, Math.min(1, brightness));
+
+      // Drift position
+      const driftX = l.driftAmpX * Math.sin(t * l.driftSpeedX + l.driftPhaseX);
+      const driftY = l.driftAmpY * Math.sin(t * l.driftSpeedY + l.driftPhaseY);
+
+      const x = (l.nx + driftX) * W;
+      const y = (l.ny + driftY) * H;
+
+      // Scale size with brightness for extra pop
+      const r = l.baseSize * (0.75 + 0.35 * brightness);
+
+      drawBokeh(x, y, r, l.col, brightness);
+    }
+
+    // Vignette overlay (darken edges)
+    const vig = ctx.createRadialGradient(W * 0.5, H * 0.5, H * 0.2, W * 0.5, H * 0.5, H * 0.85);
+    vig.addColorStop(0, 'rgba(0,0,0,0)');
+    vig.addColorStop(0.6, 'rgba(0,0,0,0.08)');
+    vig.addColorStop(1, 'rgba(0,0,0,0.55)');
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
