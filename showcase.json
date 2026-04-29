@@ -347,5 +347,70 @@
       "author": "iappyx",
       "added": "2026-04-29"
     }
+  ],
+  "iconFilters": [
+    {
+      "slug": "aurora",
+      "title": "Aurora",
+      "description": "Holographic cyan→magenta→gold→teal sheen over each icon",
+      "author": "iappyx",
+      "added": "2026-04-30"
+    },
+    {
+      "slug": "greyscale",
+      "title": "Greyscale",
+      "description": "Pure black-and-white. Minimalist, no tint.",
+      "author": "iappyx",
+      "added": "2026-04-30"
+    },
+    {
+      "slug": "mono-accent",
+      "title": "Mono accent",
+      "description": "Greyscale icons tinted to your system accent (Material You)",
+      "author": "iappyx",
+      "added": "2026-04-30"
+    },
+    {
+      "slug": "pixelate",
+      "title": "Pixelate",
+      "description": "8-bit retro: icons downsampled to chunky pixels",
+      "author": "iappyx",
+      "added": "2026-04-30"
+    },
+    {
+      "slug": "rainbow-matrix",
+      "title": "Rainbow matrix",
+      "description": "Greyscale, tinted by grid position — radial rainbow",
+      "author": "iappyx",
+      "added": "2026-04-30"
+    },
+    {
+      "slug": "sepia",
+      "title": "Sepia",
+      "description": "Warm brown vintage tones, like an old photo print",
+      "author": "iappyx",
+      "added": "2026-04-30"
+    },
+    {
+      "slug": "tinted-mono",
+      "title": "Tinted mono",
+      "description": "Each icon recoloured with its own dominant colour",
+      "author": "iappyx",
+      "added": "2026-04-30"
+    },
+    {
+      "slug": "vintage",
+      "title": "Vintage",
+      "description": "Faded saturation with a warm shift — old polaroid feel",
+      "author": "iappyx",
+      "added": "2026-04-30"
+    },
+    {
+      "slug": "wallpaper-themed",
+      "title": "Wallpaper themed",
+      "description": "Tints sampled from your wallpaper, distributed across the grid",
+      "author": "iappyx",
+      "added": "2026-04-30"
+    }
   ]
 }
