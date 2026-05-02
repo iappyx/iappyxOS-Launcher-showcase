@@ -1,0 +1,1070 @@
+<!-- Built with iappyxOS — https://github.com/iappyx/iappyxOS -->
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="iappyx-widget" content="keepAlive">
+<title>Road Trip NL</title>
+<style>
+*{-webkit-tap-highlight-color:transparent;box-sizing:border-box;margin:0;padding:0}
+*:focus{outline:none}
+button{-webkit-appearance:none;background:none;border:none;color:inherit;font:inherit;cursor:pointer}
+input,textarea,select{-webkit-appearance:none;font:inherit}
+body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+input,textarea,[contenteditable]{-webkit-user-select:text;user-select:text}
+
+:root{
+  --bg:#0d0d1a;--surface:#1a1a2e;--surface2:#16213e;--accent:#0f3460;
+  --text:#eaeaea;--muted:rgba(255,255,255,0.45);--hi:#4FC3F7;
+  --success:#69F0AE;--error:#FF6B6B;--warn:#FFD166;--r:12px;--pill:50px;
+}
+body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+
+/* NAV */
+.nav{display:flex;background:var(--surface);border-bottom:1px solid rgba(255,255,255,0.07);position:sticky;top:0;z-index:100}
+.nav-btn{flex:1;padding:12px 4px 10px;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px;transition:color .2s;border-bottom:2px solid transparent;touch-action:manipulation}
+.nav-btn.active{color:var(--hi);border-bottom-color:var(--hi)}
+.nav-icon{font-size:17px;line-height:1}
+
+/* SCREENS */
+.screen{display:none;padding:16px;min-height:calc(100vh - 51px)}
+.screen.active{display:block}
+.screen-map{display:none;padding:0;position:relative;flex-direction:column}
+.screen-map.active{display:flex;height:calc(100vh - 51px)}
+
+/* MAIN */
+.status-card{background:var(--surface);border-radius:var(--r);padding:24px 20px;margin-bottom:14px;text-align:center;border:1px solid rgba(255,255,255,0.06)}
+.status-orb{width:80px;height:80px;border-radius:50%;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;font-size:32px;background:var(--accent);transition:background .4s,box-shadow .4s}
+.status-orb.idle{background:#1a2a3a}
+.status-orb.active{background:#0a4a2a;box-shadow:0 0 24px rgba(105,240,174,.3)}
+.status-orb.speaking{background:#1a2a4a;box-shadow:0 0 24px rgba(79,195,247,.4);animation:pulse 1.4s infinite}
+.status-orb.loading{background:#2a2a1a;box-shadow:0 0 16px rgba(255,209,102,.3)}
+@keyframes pulse{0%,100%{box-shadow:0 0 24px rgba(79,195,247,.4)}50%{box-shadow:0 0 40px rgba(79,195,247,.7)}}
+.status-label{font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.status-detail{font-size:13px;color:var(--muted);min-height:18px}
+.start-btn{width:100%;padding:18px;border-radius:var(--pill);font-size:15px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:14px;transition:all .2s;touch-action:manipulation}
+.start-btn.start{background:linear-gradient(135deg,#0a4a2a,#0d6e3f);color:var(--success);border:1px solid rgba(105,240,174,.3)}
+.start-btn.stop{background:linear-gradient(135deg,#3a1a1a,#5a2a2a);color:var(--error);border:1px solid rgba(255,107,107,.3)}
+.info-row{display:flex;gap:10px;margin-bottom:14px}
+.info-card{flex:1;background:var(--surface);border-radius:var(--r);padding:14px 12px;text-align:center;border:1px solid rgba(255,255,255,0.06)}
+.info-val{font-size:22px;font-weight:700;color:var(--hi);line-height:1.1;margin-bottom:4px}
+.info-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.spoken-card{background:var(--surface);border-radius:var(--r);padding:16px;border:1px solid rgba(79,195,247,.15);min-height:80px}
+.spoken-title{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--hi);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.type-chip{font-size:10px;padding:2px 8px;border-radius:8px;background:rgba(79,195,247,.12);color:var(--hi)}
+.spoken-text-display{font-size:15px;line-height:1.6;color:var(--text)}
+.spoken-empty{color:var(--muted);font-size:14px;font-style:italic}
+
+/* NEARBY */
+.screen-header{font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
+.nearby-item{background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.06);display:flex;align-items:flex-start;gap:12px;transition:background .15s}
+.nearby-item:active{background:var(--surface2)}
+.nearby-meta{flex:1;min-width:0}
+.nearby-title{font-size:14px;font-weight:600;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nearby-snippet{font-size:12px;color:var(--muted);line-height:1.4}
+.nearby-right{text-align:right;flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.nearby-dist{font-size:13px;font-weight:700;color:var(--hi)}
+.nearby-dist-lbl{font-size:10px;color:var(--muted)}
+.play-btn{width:38px;height:38px;border-radius:50%;background:rgba(79,195,247,.12);border:1px solid rgba(79,195,247,.25);display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--hi);flex-shrink:0;margin-top:2px;touch-action:manipulation}
+.map-btn{width:32px;height:32px;border-radius:50%;background:rgba(105,240,174,.1);border:1px solid rgba(105,240,174,.2);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--success);flex-shrink:0;touch-action:manipulation}
+
+/* BADGES */
+.badge{display:inline-block;padding:2px 7px;border-radius:8px;font-size:10px;font-weight:600;margin-bottom:4px}
+.badge-village,.badge-hamlet{background:rgba(105,240,174,.12);color:#69F0AE}
+.badge-city,.badge-town{background:rgba(255,209,102,.12);color:#FFD166}
+.badge-municipality{background:rgba(79,195,247,.12);color:#4FC3F7}
+.badge-neighbourhood{background:rgba(79,195,247,.08);color:#4FC3F7}
+.badge-church,.badge-monastery{background:rgba(206,147,216,.12);color:#CE93D8}
+.badge-museum{background:rgba(206,147,216,.10);color:#CE93D8}
+.badge-castle,.badge-windmill{background:rgba(255,138,101,.12);color:#FF8A65}
+.badge-bridge{background:rgba(200,200,100,.10);color:#c8c864}
+.badge-lake,.badge-canal,.badge-river{background:rgba(79,195,247,.10);color:#4FC3F7}
+.badge-park,.badge-nature-reserve{background:rgba(105,240,174,.10);color:#69F0AE}
+.badge-other,.badge-skip{background:rgba(255,255,255,0.07);color:var(--muted)}
+.empty-state{text-align:center;padding:60px 20px;color:var(--muted)}
+.empty-icon{font-size:40px;margin-bottom:12px;opacity:.5}
+.empty-msg{font-size:14px}
+
+/* SEARCH */
+.search-bar-wrap{display:flex;gap:8px;margin-bottom:14px}
+.search-input{flex:1;background:var(--surface);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:12px 14px;font-size:15px;color:var(--text);outline:none;transition:border-color .2s}
+.search-input:focus{border-color:var(--hi)}
+.search-input::placeholder{color:var(--muted)}
+.search-go-btn{background:rgba(79,195,247,.12);border:1px solid rgba(79,195,247,.25);border-radius:10px;padding:0 16px;font-size:20px;color:var(--hi);display:flex;align-items:center;justify-content:center;touch-action:manipulation;min-width:50px}
+.search-go-btn:active{background:rgba(79,195,247,.22)}
+.search-result-item{background:var(--surface);border-radius:var(--r);padding:14px;margin-bottom:10px;border:1px solid rgba(255,255,255,0.06);display:flex;align-items:flex-start;gap:12px;transition:background .15s}
+.search-result-item:active{background:var(--surface2)}
+.search-actions{display:flex;flex-direction:column;gap:6px;flex-shrink:0;align-items:center}
+.search-count{font-size:11px;color:var(--muted);margin-bottom:10px;padding:0 2px}
+
+/* MAP SCREEN */
+#map{flex:1;width:100%;min-height:300px;background:#0d1a0d}
+.map-toolbar{background:var(--surface);border-bottom:1px solid rgba(255,255,255,.07);padding:10px 14px;display:flex;gap:8px;align-items:center;flex-shrink:0}
+.map-toolbar-title{flex:1;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.map-action-btn{padding:7px 12px;border-radius:8px;font-size:12px;font-weight:600;touch-action:manipulation;display:flex;align-items:center;gap:5px;white-space:nowrap}
+.map-action-btn.primary{background:rgba(79,195,247,.12);border:1px solid rgba(79,195,247,.25);color:var(--hi)}
+.map-action-btn.primary:active{background:rgba(79,195,247,.22)}
+.map-action-btn.danger{background:rgba(255,107,107,.08);border:1px solid rgba(255,107,107,.2);color:var(--error)}
+.map-action-btn.success{background:rgba(105,240,174,.1);border:1px solid rgba(105,240,174,.2);color:var(--success)}
+.map-dl-bar{background:var(--surface2);padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.05);display:none}
+.map-dl-bar.show{display:block}
+.map-dl-title{font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px}
+.map-dl-sub{font-size:11px;color:var(--muted);margin-bottom:8px}
+.progress-bar-wrap{background:rgba(255,255,255,.08);border-radius:4px;height:6px;overflow:hidden}
+.progress-bar-fill{height:100%;background:var(--hi);border-radius:4px;transition:width .3s;width:0%}
+.map-dl-pct{font-size:11px;color:var(--hi);margin-top:4px}
+.map-status-bar{position:absolute;bottom:28px;left:50%;transform:translateX(-50%);background:rgba(13,13,26,.85);border:1px solid rgba(255,255,255,.1);border-radius:var(--pill);padding:6px 14px;font-size:12px;color:var(--muted);pointer-events:none;white-space:nowrap;max-width:90%;text-align:center}
+.map-locate-btn{position:absolute;bottom:70px;right:14px;width:44px;height:44px;border-radius:50%;background:var(--surface);border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;font-size:20px;z-index:10;touch-action:manipulation;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+.map-locate-btn:active{background:var(--surface2)}
+/* MapLibre popup override */
+.maplibregl-popup-content{background:var(--surface)!important;color:var(--text)!important;border:1px solid rgba(255,255,255,.1)!important;border-radius:10px!important;padding:12px 14px!important;box-shadow:0 4px 20px rgba(0,0,0,.5)!important;max-width:220px}
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip{border-top-color:var(--surface)!important}
+.maplibregl-popup-anchor-top .maplibregl-popup-tip{border-bottom-color:var(--surface)!important}
+.maplibregl-popup-close-button{color:var(--muted)!important;font-size:18px!important;top:6px!important;right:8px!important}
+.maplibregl-ctrl-attrib{background:rgba(13,13,26,.7)!important;color:rgba(255,255,255,.4)!important;font-size:9px!important}
+.maplibregl-ctrl-attrib a{color:rgba(255,255,255,.5)!important}
+.popup-title{font-size:14px;font-weight:700;color:var(--hi);margin-bottom:4px;padding-right:16px}
+.popup-type{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px}
+.popup-actions{display:flex;gap:8px;margin-top:8px}
+.popup-btn{flex:1;padding:7px 6px;border-radius:8px;font-size:12px;font-weight:600;text-align:center;touch-action:manipulation}
+.popup-btn-speak{background:rgba(79,195,247,.12);border:1px solid rgba(79,195,247,.25);color:var(--hi)}
+.popup-btn-maps{background:rgba(105,240,174,.1);border:1px solid rgba(105,240,174,.2);color:var(--success)}
+
+/* SETTINGS */
+.settings-section{margin-bottom:20px}
+.settings-title{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;padding:0 4px}
+.settings-card{background:var(--surface);border-radius:var(--r);border:1px solid rgba(255,255,255,0.06);overflow:hidden}
+.settings-row{display:flex;align-items:center;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.05);gap:12px}
+.settings-row:last-child{border-bottom:none}
+.settings-row-label{flex:1;font-size:14px}
+.settings-row-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.toggle{position:relative;width:46px;height:26px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-track{position:absolute;inset:0;background:rgba(255,255,255,.12);border-radius:13px;transition:background .2s}
+.toggle input:checked+.toggle-track{background:var(--hi)}
+.toggle-thumb{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .2s;pointer-events:none}
+.toggle input:checked~.toggle-thumb{transform:translateX(20px)}
+.seg{display:flex;background:rgba(255,255,255,.07);border-radius:8px;padding:3px;gap:2px}
+.seg-btn{flex:1;padding:6px 4px;border-radius:6px;font-size:12px;font-weight:600;color:var(--muted);text-align:center;transition:all .15s;touch-action:manipulation}
+.seg-btn.active{background:var(--hi);color:var(--bg)}
+.type-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px}
+.type-toggle-item{display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(255,255,255,.04);border-radius:8px}
+.type-toggle-label{flex:1;font-size:13px}
+.enable-all-btn{width:100%;padding:12px;border-radius:8px;background:rgba(79,195,247,.1);border:1px solid rgba(79,195,247,.2);color:var(--hi);font-size:13px;font-weight:600;margin-bottom:10px;touch-action:manipulation}
+
+/* LOADING / TOAST */
+.loading-overlay{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:999}
+.loading-spinner{width:48px;height:48px;border:3px solid rgba(79,195,247,.2);border-top-color:var(--hi);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{font-size:14px;color:var(--muted)}
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--surface);border:1px solid rgba(255,255,255,.1);border-radius:var(--pill);padding:10px 20px;font-size:13px;opacity:0;transition:all .25s;z-index:300;white-space:nowrap;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head><body>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text" id="loadingText">Loading database…</div>
+</div>
+
+<!-- NAV -->
+<nav class="nav">
+  <button class="nav-btn active" id="nav-main" onclick="showScreen('main')">
+    <span class="nav-icon">🗺️</span>Drive
+  </button>
+  <button class="nav-btn" id="nav-nearby" onclick="showScreen('nearby')">
+    <span class="nav-icon">📍</span>Nearby
+  </button>
+  <button class="nav-btn" id="nav-search" onclick="showScreen('search')">
+    <span class="nav-icon">🔍</span>Search
+  </button>
+  <button class="nav-btn" id="nav-map" onclick="showScreen('map')">
+    <span class="nav-icon">🗾</span>Map
+  </button>
+  <button class="nav-btn" id="nav-settings" onclick="showScreen('settings')">
+    <span class="nav-icon">⚙️</span>Settings
+  </button>
+</nav>
+
+<!-- MAIN SCREEN -->
+<div class="screen active" id="screen-main">
+  <div class="status-card">
+    <div class="status-orb idle" id="statusOrb"><span id="statusIcon">🚗</span></div>
+    <div class="status-label" id="statusLabel">Ready</div>
+    <div class="status-detail" id="statusDetail">Press Start to begin</div>
+  </div>
+  <button class="start-btn start" id="startBtn" onclick="toggleTracking()">▶ Start Trip</button>
+  <div class="info-row">
+    <div class="info-card"><div class="info-val" id="speedVal">—</div><div class="info-lbl">km/h</div></div>
+    <div class="info-card"><div class="info-val" id="nearbyCount">—</div><div class="info-lbl">Nearby</div></div>
+    <div class="info-card"><div class="info-val" id="heardCount">—</div><div class="info-lbl">Heard today</div></div>
+  </div>
+  <div class="spoken-card">
+    <div class="spoken-title">
+      <span>Last spoken</span>
+      <span class="type-chip" id="lastType" style="display:none"></span>
+    </div>
+    <div id="lastSpokenTitle" style="font-size:13px;font-weight:600;color:var(--hi);margin-bottom:6px;display:none"></div>
+    <div class="spoken-text-display" id="lastSpokenText"><span class="spoken-empty">Nothing spoken yet…</span></div>
+  </div>
+</div>
+
+<!-- NEARBY SCREEN -->
+<div class="screen" id="screen-nearby">
+  <div class="screen-header">
+    <span id="nearbyHeader">Nearby locations</span>
+    <span id="nearbyCoords" style="font-size:10px;font-weight:400"></span>
+  </div>
+  <div id="nearbyList">
+    <div class="empty-state"><div class="empty-icon">📍</div><div class="empty-msg">Start a trip to see nearby locations</div></div>
+  </div>
+</div>
+
+<!-- SEARCH SCREEN -->
+<div class="screen" id="screen-search">
+  <div class="search-bar-wrap">
+    <input class="search-input" id="searchInput" type="text" placeholder="Search locations…" oninput="onSearchInput()" onkeydown="onSearchKey(event)">
+    <button class="search-go-btn" onclick="doSearch()">🔍</button>
+  </div>
+  <div id="searchCount" class="search-count"></div>
+  <div id="searchResults">
+    <div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-msg">Type a name to search Dutch locations</div></div>
+  </div>
+</div>
+
+<!-- MAP SCREEN -->
+<div class="screen-map" id="screen-map">
+  <!-- Toolbar -->
+  <div class="map-toolbar">
+    <span class="map-toolbar-title" id="mapToolbarTitle">Map</span>
+    <button class="map-action-btn primary" id="mapNearbyBtn" onclick="showNearbyOnMap()" style="display:none">📍 Nearby</button>
+    <button class="map-action-btn primary" id="mapLibsBtn" onclick="loadMapLibs()" style="display:none">⟳ Retry</button>
+  </div>
+  <!-- Map container -->
+  <div id="map"></div>
+  <!-- Locate button -->
+  <button class="map-locate-btn" id="mapLocateBtn" onclick="mapFlyToGPS()" style="display:none">📍</button>
+  <!-- Status bar -->
+  <div class="map-status-bar" id="mapStatusBar">Loading map…</div>
+</div>
+
+<!-- SETTINGS SCREEN -->
+<div class="screen" id="screen-settings">
+  <div class="settings-section">
+    <div class="settings-title">Language</div>
+    <div class="settings-card">
+      <div class="settings-row">
+        <div class="settings-row-label">TTS Language</div>
+        <div class="seg" id="langSeg">
+          <div class="seg-btn active" onclick="setLang('en')">🇬🇧 EN</div>
+          <div class="seg-btn" onclick="setLang('nl')">🇳🇱 NL</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="settings-section">
+    <div class="settings-title">Detection</div>
+    <div class="settings-card">
+      <div class="settings-row">
+        <div><div class="settings-row-label">Radius</div><div class="settings-row-sub" id="radiusLabel">500 m</div></div>
+        <div class="seg" id="radiusSeg">
+          <div class="seg-btn" onclick="setRadius(200)">200m</div>
+          <div class="seg-btn active" onclick="setRadius(500)">500m</div>
+          <div class="seg-btn" onclick="setRadius(1000)">1km</div>
+          <div class="seg-btn" onclick="setRadius(2000)">2km</div>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div><div class="settings-row-label">Min gap between speaks</div><div class="settings-row-sub" id="gapLabel">30 seconds</div></div>
+        <div class="seg" id="gapSeg">
+          <div class="seg-btn" onclick="setGap(15)">15s</div>
+          <div class="seg-btn active" onclick="setGap(30)">30s</div>
+          <div class="seg-btn" onclick="setGap(60)">60s</div>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div><div class="settings-row-label">Speed gate</div><div class="settings-row-sub" id="speedGateLabel">Speak above 5 km/h</div></div>
+        <div class="seg" id="speedSeg">
+          <div class="seg-btn" onclick="setSpeedGate(0)">Off</div>
+          <div class="seg-btn active" onclick="setSpeedGate(5)">5</div>
+          <div class="seg-btn" onclick="setSpeedGate(15)">15</div>
+          <div class="seg-btn" onclick="setSpeedGate(30)">30</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="settings-section">
+    <div class="settings-title">Location types</div>
+    <button class="enable-all-btn" onclick="enableAllTypes()">Enable all types</button>
+    <div class="settings-card"><div class="type-grid" id="typeGrid"></div></div>
+  </div>
+  <div class="settings-section">
+    <div class="settings-title">Data</div>
+    <div class="settings-card">
+      <div class="settings-row">
+        <div>
+          <div class="settings-row-label">Clear today's heard list</div>
+          <div class="settings-row-sub" id="heardLabel">0 locations heard today</div>
+        </div>
+        <button onclick="clearHeard()" style="padding:8px 14px;border-radius:8px;background:rgba(255,107,107,.1);border:1px solid rgba(255,107,107,.2);color:var(--error);font-size:13px;font-weight:600;touch-action:manipulation">Clear</button>
+      </div>
+      <div class="settings-row">
+        <div><div class="settings-row-label">Database</div><div class="settings-row-sub" id="dbInfo">Loading…</div></div>
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-row-label">Map</div>
+          <div class="settings-row-sub" id="mapFileInfo">Online via Protomaps API</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── STATE ──
+var appState={lang:'en',radius:500,gap:30,speedGate:5,types:{'village':true,'hamlet':true,'city':true,'town':true,'municipality':true,'neighbourhood':true,'church':true,'building':true,'bridge':true,'railway station':true,'museum':true,'park':true,'castle':true,'windmill':true,'monastery':true,'canal':true,'lake':true,'river':true,'cemetery':true,'nature reserve':true,'airport':false,'port':false,'other':false,'skip':false}};
+var tracking=false,speaking=false,lastSpeak=0;
+var currentLat=null,currentLon=null,currentSpeed=0;
+var nearbyCache=[],mapViewCache=[],dbReady=false,ttsLang='en';
+var searchResults=[],searchDebounce=null;
+
+// ── MAP STATE ──
+var mapLibsLoaded=false,mapInstance=null,mapReady=false;
+var mapGpsMarker=null,mapPopup=null;
+var MAPLIBRE_JS_URL='https://unpkg.com/maplibre-gl@5.23.0/dist/maplibre-gl.js';
+var MAPLIBRE_CSS_URL='https://unpkg.com/maplibre-gl@5.23.0/dist/maplibre-gl.css';
+// OpenFreeMap: completely free, no API key, no registration, no limits
+// Style JSON includes tile URLs, fonts, sprites — MapLibre handles everything
+var OFM_STYLE_URL='https://tiles.openfreemap.org/styles/liberty';
+
+// ── BRIDGE INIT ──
+function _initBridge(){if(typeof iappyx==='undefined'){setTimeout(_initBridge,50);return;}onReady();}
+window.addEventListener('load',function(){setTimeout(_initBridge,200)});
+
+function onReady(){
+  loadAppState();renderTypeGrid();updateSegments();
+  extractAndOpenDB();
+  checkMapFileStatus();
+}
+
+// ── DB SETUP ──
+function extractAndOpenDB(){
+  setLoadingText('Checking database…');
+  var assets=JSON.parse(iappyx.storage.listAssets());
+  var dbAsset=null;
+  for(var i=0;i<assets.length;i++){if(assets[i].name==='nl_app.db'){dbAsset=assets[i];break;}}
+  if(!dbAsset){setLoadingText('nl_app.db not found');setTimeout(function(){hideLoading('DB not bundled — add nl_app.db via App Files');},1500);return;}
+  var files=JSON.parse(iappyx.storage.listFiles());
+  var already=false;
+  for(var j=0;j<files.length;j++){if(files[j].name==='nl_app.db'){already=true;break;}}
+  if(already){openDB();return;}
+  setLoadingText('Extracting database… (first launch)');
+  var cbId='ext_'+Date.now();
+  window._iappyxCb=window._iappyxCb||{};
+  window._iappyxCb[cbId]=function(r){if(!r.ok){hideLoading('Failed to extract DB: '+(r.error||''));return;}openDB();};
+  iappyx.storage.extractAsset('nl_app.db','nl_app.db',cbId);
+}
+
+function openDB(){
+  setLoadingText('Opening database…');
+  try{
+    if(typeof iappyx.sqlite.open==='function'){
+      var openRes=JSON.parse(iappyx.sqlite.open('nl_app.db'));
+      if(!openRes.ok){hideLoading('DB open failed: '+(openRes.error||''));return;}
+    }
+    iappyx.sqlite.exec('CREATE TABLE IF NOT EXISTS heard (location_id INTEGER PRIMARY KEY, heard_at INTEGER)',null);
+    dbReady=true;
+    var info=JSON.parse(iappyx.sqlite.query('SELECT COUNT(*) as n FROM locations',null));
+    var txtInfo=JSON.parse(iappyx.sqlite.query('SELECT COUNT(*) as n FROM location_texts WHERE language=?',JSON.stringify([appState.lang])));
+    document.getElementById('dbInfo').textContent=info.rows[0].n.toLocaleString()+' locations · '+txtInfo.rows[0].n.toLocaleString()+' '+appState.lang.toUpperCase()+' texts';
+    hideLoading(null);
+  }catch(e){hideLoading('DB error: '+e);}
+}
+
+function setLoadingText(t){document.getElementById('loadingText').textContent=t;}
+function hideLoading(err){document.getElementById('loadingOverlay').style.display='none';if(err)showToast(err,4000);}
+
+// ── TRACKING ──
+function toggleTracking(){
+  if(!dbReady){showToast('Database not ready');return;}
+  if(!tracking){startTracking();}else{stopTracking();}
+}
+function startTracking(){
+  setStatus('loading','⏳','Requesting GPS…','Asking for location permission');
+  var cbId='loc_perm_'+Date.now();
+  window._iappyxCb=window._iappyxCb||{};
+  window._iappyxCb[cbId]=function(r){
+    if(!r.ok){setStatus('idle','🚗','Ready','Location permission denied');showToast('Location permission required');return;}
+    doStartTracking();
+  };
+  iappyx.location.getLocation(cbId);
+}
+function doStartTracking(){
+  tracking=true;
+  iappyx.screen.keepOn(true);
+  iappyx.tts.setLanguage(appState.lang==='nl'?'nl':'en');
+  iappyx.tts.setRate('0.9');
+  document.getElementById('startBtn').className='start-btn stop';
+  document.getElementById('startBtn').textContent='■ Stop Trip';
+  setStatus('active','🟢','Listening…','GPS active — driving detection on');
+  iappyx.location.startTrackingWithOptions('window.onTrackUpdate',4000,20,'Road trip guide active');
+}
+function stopTracking(){
+  tracking=false;speaking=false;
+  iappyx.tts.stop();iappyx.location.stopTracking();iappyx.screen.keepOn(false);
+  document.getElementById('startBtn').className='start-btn start';
+  document.getElementById('startBtn').textContent='▶ Start Trip';
+  setStatus('idle','🚗','Ready','Press Start to begin');
+  document.getElementById('speedVal').textContent='—';
+  document.getElementById('nearbyCount').textContent='—';
+  currentLat=null;currentLon=null;nearbyCache=[];
+  if(mapReady)updateMapGpsMarker();
+}
+
+window.onTrackUpdate=function(loc){
+  if(!tracking)return;
+  if(!loc||loc.error)return;
+  currentLat=loc.lat;currentLon=loc.lon;
+  currentSpeed=(loc.speed||0)*3.6;
+  document.getElementById('speedVal').textContent=Math.round(currentSpeed);
+  document.getElementById('nearbyCoords').textContent=loc.lat.toFixed(4)+', '+loc.lon.toFixed(4);
+  queryNearby();
+  if(mapReady)updateMapGpsMarker();
+};
+
+// ── QUERY NEARBY ──
+function queryNearby(){
+  if(!dbReady||currentLat===null)return;
+  var r=appState.radius;
+  var dlat=r/111000,dlon=r/(111000*Math.abs(Math.cos(currentLat*Math.PI/180)));
+  var cutoff=Date.now()-24*60*60*1000;
+  var enabledTypes=[];
+  for(var t in appState.types){if(appState.types[t])enabledTypes.push(t);}
+  if(enabledTypes.length===0){nearbyCache=[];updateNearbyUI();return;}
+  var placeholders=enabledTypes.map(function(){return'?';}).join(',');
+  // Fetch ALL locations in radius (including heard), with heard flag
+  var sql='SELECT l.id,l.title,l.lat,l.lon,l.type,lt.spoken_text,'+
+    'CASE WHEN h.heard_at IS NOT NULL AND h.heard_at>? THEN 1 ELSE 0 END as heard '+
+    'FROM locations l JOIN location_texts lt ON lt.location_id=l.id '+
+    'LEFT JOIN heard h ON h.location_id=l.id '+
+    'WHERE lt.language=? AND l.lat BETWEEN ? AND ? AND l.lon BETWEEN ? AND ? '+
+    'AND (l.type IS NULL OR l.type IN ('+placeholders+')) LIMIT 100';
+  var params=JSON.stringify([cutoff,appState.lang,currentLat-dlat,currentLat+dlat,currentLon-dlon,currentLon+dlon].concat(enabledTypes));
+  try{
+    var res=JSON.parse(iappyx.sqlite.query(sql,params));
+    if(!res.ok)return;
+    var unheard=[],heard=[];
+    for(var i=0;i<res.rows.length;i++){
+      var row=res.rows[i];
+      var dist=haversine(currentLat,currentLon,row.lat,row.lon);
+      if(dist<=r){
+        var item={id:row.id,title:row.title,lat:row.lat,lon:row.lon,
+          type:row.type||'other',spoken_text:row.spoken_text,
+          dist:dist,heard:row.heard===1};
+        if(item.heard)heard.push(item); else unheard.push(item);
+      }
+    }
+    unheard.sort(function(a,b){return a.dist-b.dist;});
+    heard.sort(function(a,b){return a.dist-b.dist;});
+    nearbyCache=unheard.concat(heard);
+    document.getElementById('nearbyCount').textContent=unheard.length;
+    updateNearbyUI();
+    if(mapReady)updateMapMarkers();
+    maybeSpeak();
+  }catch(e){}
+}
+
+function maybeSpeak(){
+  if(!tracking||speaking)return;
+  // Only speak unheard items (heard===false)
+  var candidate=null;
+  for(var i=0;i<nearbyCache.length;i++){if(!nearbyCache[i].heard){candidate=nearbyCache[i];break;}}
+  if(!candidate)return;
+  var now=Date.now();
+  if(now-lastSpeak<appState.gap*1000)return;
+  if(appState.speedGate>0&&currentSpeed<appState.speedGate){setStatus('active','🟢','Listening…','Waiting — speed below '+appState.speedGate+' km/h');return;}
+  speak(candidate);
+}
+
+function speak(item){
+  speaking=true;lastSpeak=Date.now();
+  setStatus('speaking','🔊','Speaking…',item.title);
+  try{iappyx.sqlite.exec('INSERT OR REPLACE INTO heard (location_id,heard_at) VALUES (?,?)',JSON.stringify([item.id,Date.now()]));}catch(e){}
+  // Mark as heard in cache so UI updates immediately without re-query
+  for(var k=0;k<nearbyCache.length;k++){if(nearbyCache[k].id===item.id){nearbyCache[k].heard=true;break;}}
+  // Re-sort: unheard first, heard last
+  var unheard=nearbyCache.filter(function(x){return!x.heard;});
+  var heardItems=nearbyCache.filter(function(x){return x.heard;});
+  nearbyCache=unheard.concat(heardItems);
+  document.getElementById('lastSpokenTitle').textContent=item.title;
+  document.getElementById('lastSpokenTitle').style.display='block';
+  document.getElementById('lastSpokenText').textContent=item.spoken_text;
+  document.getElementById('lastType').textContent=item.type;
+  document.getElementById('lastType').style.display='inline-block';
+  updateHeardCount();
+  updateNearbyUI();
+  if(mapReady)updateMapMarkers();
+  var cbId='tts_'+Date.now();
+  window._iappyxCb=window._iappyxCb||{};
+  window._iappyxCb[cbId]=function(){speaking=false;if(tracking)setStatus('active','🟢','Listening…','GPS active — driving detection on');};
+  setTimeout(function(){if(speaking)speaking=false;},30000);
+  iappyx.tts.speakWithCallback(item.spoken_text,'window._iappyxCb.'+cbId);
+}
+
+// ── NEARBY UI ──
+function updateNearbyUI(){
+  var list=document.getElementById('nearbyList');
+  if(nearbyCache.length===0){
+    list.innerHTML='<div class="empty-state"><div class="empty-icon">📍</div><div class="empty-msg">'+(tracking?'No locations in radius':'Start a trip to see nearby locations')+'</div></div>';
+    document.getElementById('nearbyHeader').textContent='Nearby locations';return;
+  }
+  var unheard=nearbyCache.filter(function(x){return!x.heard;});
+  var heard=nearbyCache.filter(function(x){return x.heard;});
+  document.getElementById('nearbyHeader').textContent=
+    unheard.length+' unheard'+(heard.length?' · '+heard.length+' heard':'');
+  var html='';
+  function renderItem(item,idx,dimmed){
+    var distStr=item.dist>=1000?(item.dist/1000).toFixed(1)+' km':Math.round(item.dist)+' m';
+    var snippet=item.spoken_text;
+    var bc='badge badge-'+(item.type||'other').replace(/\s+/g,'-');
+    var style=dimmed?'opacity:0.38;':'';
+    html+='<div class="nearby-item" style="'+style+'">';
+    html+='<button class="play-btn" onclick="speakItem('+idx+')">▶</button>';
+    html+='<div class="nearby-meta" onclick="speakItem('+idx+')"><span class="'+bc+'">'+escHtml(item.type||'other')+'</span>';
+    html+='<div class="nearby-title">'+escHtml(item.title)+'</div>';
+    html+='<div class="nearby-snippet">'+escHtml(snippet)+'</div></div>';
+    html+='<div class="nearby-right"><div><div class="nearby-dist">'+distStr+'</div><div class="nearby-dist-lbl">away</div></div>';
+    html+='<button class="map-btn" onclick="flyToOnMap('+item.lat+','+item.lon+',\''+escAttr(item.title)+'\',\''+escAttr(item.type||'other')+'\',\''+escAttr(item.spoken_text)+'\')">🗾</button>';
+    html+='<button class="map-btn" onclick="openInMaps('+item.lat+','+item.lon+',\''+escAttr(item.title)+'\')">🗺</button>';
+    html+='</div></div>';
+  }
+  for(var i=0;i<unheard.length;i++) renderItem(unheard[i],nearbyCache.indexOf(unheard[i]),false);
+  if(heard.length>0){
+    html+='<div style="text-align:center;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:10px 0 6px;border-top:1px solid rgba(255,255,255,.06);margin-top:4px;">Already heard today</div>';
+    for(var j=0;j<heard.length;j++) renderItem(heard[j],nearbyCache.indexOf(heard[j]),true);
+  }
+  list.innerHTML=html;
+}
+
+function speakItem(idx){
+  if(!dbReady){showToast('Database not ready');return;}
+  var item=nearbyCache[idx];if(!item)return;
+  if(speaking){iappyx.tts.stop();speaking=false;}
+  speak(item);showToast('Speaking: '+item.title);
+}
+
+// ── SEARCH ──
+function onSearchInput(){clearTimeout(searchDebounce);searchDebounce=setTimeout(doSearch,400);}
+function onSearchKey(e){if(e.keyCode===13){clearTimeout(searchDebounce);doSearch();}}
+
+function doSearch(){
+  if(!dbReady){showToast('Database not ready');return;}
+  var q=(document.getElementById('searchInput').value||'').trim();
+  if(q.length<2){
+    searchResults=[];document.getElementById('searchCount').textContent='';
+    document.getElementById('searchResults').innerHTML='<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-msg">Type at least 2 characters to search</div></div>';return;
+  }
+  try{
+    var res=JSON.parse(iappyx.sqlite.query('SELECT l.id,l.title,l.lat,l.lon,l.type,lt.spoken_text FROM locations l JOIN location_texts lt ON lt.location_id=l.id WHERE lt.language=? AND l.title LIKE ? ORDER BY l.title ASC LIMIT 60',JSON.stringify([appState.lang,'%'+q+'%'])));
+    if(!res.ok){showToast('Search error');return;}
+    searchResults=res.rows;renderSearchResults();
+  }catch(e){showToast('Search error: '+e);}
+}
+
+function renderSearchResults(){
+  var count=document.getElementById('searchCount'),container=document.getElementById('searchResults');
+  if(searchResults.length===0){count.textContent='';container.innerHTML='<div class="empty-state"><div class="empty-icon">🤷</div><div class="empty-msg">No locations found</div></div>';return;}
+  count.textContent=searchResults.length+(searchResults.length===60?' (first 60)':'')+' result'+(searchResults.length===1?'':'s');
+  var html='';
+  for(var i=0;i<searchResults.length;i++){
+    var item=searchResults[i];
+    var snippet=item.spoken_text||'';
+    var bc='badge badge-'+(item.type||'other').replace(/\s+/g,'-');
+    var distHtml='';
+    if(currentLat!==null){var d=haversine(currentLat,currentLon,item.lat,item.lon);distHtml='<div style="font-size:11px;color:var(--hi);margin-top:4px;">'+(d>=1000?(d/1000).toFixed(1)+' km':Math.round(d)+' m')+' away</div>';}
+    html+='<div class="search-result-item"><div class="nearby-meta" onclick="speakSearchItem('+i+')"><span class="'+bc+'">'+escHtml(item.type||'other')+'</span><div class="nearby-title">'+escHtml(item.title)+'</div>'+(snippet?'<div class="nearby-snippet">'+escHtml(snippet)+'</div>':'')+distHtml+'</div>';
+    html+='<div class="search-actions">';
+    html+='<button class="play-btn" onclick="speakSearchItem('+i+')" style="margin-top:0">▶</button>';
+    html+='<button class="map-btn" onclick="flyToOnMap('+item.lat+','+item.lon+',\''+escAttr(item.title)+'\',\''+escAttr(item.type||'other')+'\',\''+escAttr(item.spoken_text||'')+'\')">🗾</button>';
+    html+='<button class="map-btn" onclick="openInMaps('+item.lat+','+item.lon+',\''+escAttr(item.title)+'\')">🗺</button>';
+    html+='</div></div>';
+  }
+  container.innerHTML=html;
+}
+
+function speakSearchItem(idx){
+  if(!dbReady){showToast('Database not ready');return;}
+  var item=searchResults[idx];if(!item||!item.spoken_text){showToast('No text available');return;}
+  if(speaking){iappyx.tts.stop();speaking=false;}
+  iappyx.tts.setLanguage(appState.lang==='nl'?'nl':'en');iappyx.tts.setRate('0.9');
+  speaking=true;
+  var cbId='tts_s_'+Date.now();
+  window._iappyxCb=window._iappyxCb||{};
+  window._iappyxCb[cbId]=function(){speaking=false;};
+  setTimeout(function(){if(speaking)speaking=false;},30000);
+  iappyx.tts.speakWithCallback(item.spoken_text,'window._iappyxCb.'+cbId);
+  showToast('Speaking: '+item.title);
+}
+
+// ── OPEN IN MAPS ──
+function openInMaps(lat,lon,label){
+  window.location.href='geo:'+lat+','+lon+'?q='+lat+','+lon+'('+encodeURIComponent(label)+')';
+}
+
+// ── MAP FEATURE ──
+function checkMapFileStatus(){
+  document.getElementById('mapFileInfo').textContent='Online via Protomaps API';
+}
+
+function hasLocalMap(){ return false; }
+
+// Step 1: load JS/CSS libraries (cached after first load)
+function loadMapLibs(){
+  if(mapLibsLoaded){initMap();return;}
+  document.getElementById('mapLibsBtn').style.display='none';
+  setMapStatus('Loading MapLibre… (needs internet on first launch)');
+  loadLib(MAPLIBRE_JS_URL,'maplibre.js',false,function(err){
+    if(err){
+      setMapStatus('Failed: '+err);
+      document.getElementById('mapLibsBtn').style.display='';
+      document.getElementById('mapLibsBtn').textContent='⟳ Retry';
+      return;
+    }
+    setMapStatus('Loading map CSS…');
+    loadLib(MAPLIBRE_CSS_URL,'maplibre.css',true,function(){
+      var css=iappyx.storage.loadFile('maplibre.css');
+      if(css&&css.length>100)injectCSS(css);
+      mapLibsLoaded=true;
+      initMap();
+    });
+  });
+}
+
+function injectCSS(css){var s=document.createElement('style');s.textContent=css;document.head.appendChild(s);}
+function runScript(code){var s=document.createElement('script');s.textContent=code;document.head.appendChild(s);}
+
+// Load a file via iappyx.httpClient.request (NOT fetch — blocked on file:// origin)
+// isCSS=true means don't runScript, just save and let caller inject
+function loadLib(url,filename,isCSS,callback){
+  var cached=iappyx.storage.loadFile(filename);
+  if(cached&&cached.length>100){
+    if(!isCSS)runScript(cached);
+    callback();
+    return;
+  }
+  var cbId='lib_'+Date.now()+'_'+Math.random().toString(36).substr(2,4);
+  window._iappyxCb=window._iappyxCb||{};
+  var timer=setTimeout(function(){
+    if(window._iappyxCb[cbId]){delete window._iappyxCb[cbId];callback('Timed out fetching '+filename);}
+  },60000);
+  window._iappyxCb[cbId]=function(r){
+    clearTimeout(timer);
+    if(!r.ok||!r.body||r.body.length<100){
+      callback('Could not load '+filename+(r.error?' ('+r.error+')':''));
+      return;
+    }
+    iappyx.storage.saveFile(filename,r.body);
+    if(!isCSS)runScript(r.body);
+    callback();
+  };
+  iappyx.httpClient.request(
+    JSON.stringify({url:url,method:'GET',timeout:60000}),
+    'window._iappyxCb.'+cbId
+  );
+}
+
+// Step 2: initialise MapLibre with OpenFreeMap style (free, no API key)
+function initMap(){
+  setMapStatus('Loading map…');
+  try{
+    mapInstance=new maplibregl.Map({
+      container:'map',
+      style:OFM_STYLE_URL,
+      center:[5.3,52.2],
+      zoom:7,
+      maxZoom:17,
+      minZoom:3,
+      attributionControl:false  // we add custom attribution below
+    });
+
+    // Custom attribution: OpenFreeMap + OpenStreetMap
+    mapInstance.addControl(new maplibregl.AttributionControl({
+      customAttribution:'<a href="https://openfreemap.org">OpenFreeMap</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }),'bottom-right');
+
+    mapInstance.on('load',function(){
+      mapReady=true;
+      document.getElementById('mapLibsBtn').style.display='none';
+      document.getElementById('mapLocateBtn').style.display='';
+      document.getElementById('mapNearbyBtn').style.display=nearbyCache.length?'':'none';
+      setMapStatus('');
+      updateMapMarkers();
+      if(currentLat!==null)updateMapGpsMarker();
+      mapFlyToGPS();        // zoom to current location on first load
+      mapInstance.on('moveend',onMapMoveEnd);
+    });
+
+    mapInstance.on('error',function(e){
+      // Suppress sprite/glyph 404s from showing as user-visible errors
+      if(e.error&&e.error.status===404)return;
+      setMapStatus('Map error — check internet connection');
+    });
+
+  }catch(e){
+    setMapStatus('Map init error: '+e);
+    document.getElementById('mapLibsBtn').style.display='';
+    document.getElementById('mapLibsBtn').textContent='⟳ Retry';
+  }
+}
+
+
+// ── MAP MARKERS ──
+function updateMapMarkers(){
+  if(!mapInstance||!mapReady)return;
+  try{if(mapInstance.getLayer('loc-markers-circle'))mapInstance.removeLayer('loc-markers-circle');}catch(e){}
+  try{if(mapInstance.getLayer('loc-markers-label'))mapInstance.removeLayer('loc-markers-label');}catch(e){}
+  try{if(mapInstance.getSource('loc-markers'))mapInstance.removeSource('loc-markers');}catch(e){}
+
+  // Merge nearbyCache + mapViewCache, deduplicate by id
+  var seen={};
+  var allItems=[];
+  for(var i=0;i<nearbyCache.length;i++){seen[nearbyCache[i].id]=true;allItems.push(nearbyCache[i]);}
+  for(var j=0;j<mapViewCache.length;j++){if(!seen[mapViewCache[j].id]){seen[mapViewCache[j].id]=true;allItems.push(mapViewCache[j]);}}
+
+  if(allItems.length===0){
+    document.getElementById('mapNearbyBtn').style.display='none';
+    return;
+  }
+
+  var features=[];
+  for(var k=0;k<allItems.length;k++){
+    var item=allItems[k];
+    features.push({
+      type:'Feature',
+      geometry:{type:'Point',coordinates:[item.lon,item.lat]},
+      properties:{
+        title:item.title,
+        itemType:item.type,
+        spoken_text:item.spoken_text||'',
+        idx:nearbyCache.indexOf(item),
+        heard:item.heard?1:0
+      }
+    });
+  }
+
+  mapInstance.addSource('loc-markers',{type:'geojson',data:{type:'FeatureCollection',features:features}});
+
+  // Circles: cyan for unheard, grey for heard
+  mapInstance.addLayer({
+    id:'loc-markers-circle',type:'circle',source:'loc-markers',
+    paint:{
+      'circle-radius':['interpolate',['linear'],['zoom'],7,4,14,8],
+      'circle-color':['case',['==',['get','heard'],0],'#4FC3F7','#888888'],
+      'circle-stroke-width':2,
+      'circle-stroke-color':['case',['==',['get','heard'],0],'rgba(255,255,255,0.5)','rgba(255,255,255,0.2)'],
+      'circle-opacity':['case',['==',['get','heard'],0],1,0.45]
+    }
+  });
+
+  // Labels: only show at zoom 11+ for unheard, 13+ for heard
+  mapInstance.addLayer({
+    id:'loc-markers-label',type:'symbol',source:'loc-markers',
+    filter:['==',['get','heard'],0],
+    layout:{
+      'text-field':['get','title'],
+      'text-font':['Noto Sans Regular'],
+      'text-size':11,
+      'text-offset':[0,1.2],
+      'text-anchor':'top',
+      'text-max-width':8
+    },
+    paint:{
+      'text-color':'#4FC3F7',
+      'text-halo-color':'rgba(0,0,0,0.8)',
+      'text-halo-width':1.5
+    },
+    minzoom:11
+  });
+
+  mapInstance.on('click','loc-markers-circle',function(e){
+    var props=e.features[0].properties;
+    var coords=e.features[0].geometry.coordinates.slice();
+    showMapPopup(coords[1],coords[0],props.title,props.itemType,props.spoken_text,props.idx);
+  });
+  mapInstance.on('mouseenter','loc-markers-circle',function(){mapInstance.getCanvas().style.cursor='pointer';});
+  mapInstance.on('mouseleave','loc-markers-circle',function(){mapInstance.getCanvas().style.cursor='';});
+
+  document.getElementById('mapNearbyBtn').style.display=nearbyCache.length?'':'none';
+
+  // Fit map to show nearby markers (only when tracking and zoom is broad)
+  if(nearbyCache.length>0){
+    var bounds=new maplibregl.LngLatBounds();
+    for(var jj=0;jj<nearbyCache.length;jj++)bounds.extend([nearbyCache[jj].lon,nearbyCache[jj].lat]);
+    if(currentLat!==null)bounds.extend([currentLon,currentLat]);
+    var currentZoom=mapInstance.getZoom();
+    if(currentZoom<12){
+      mapInstance.fitBounds(bounds,{padding:60,maxZoom:13,duration:600,animate:true});
+    }
+  }
+}
+
+function updateMapGpsMarker(){
+  if(!mapInstance||!mapReady)return;
+  try{if(mapInstance.getLayer('gps-dot'))mapInstance.removeLayer('gps-dot');}catch(e){}
+  try{if(mapInstance.getLayer('gps-accuracy'))mapInstance.removeLayer('gps-accuracy');}catch(e){}
+  try{if(mapInstance.getSource('gps-pos'))mapInstance.removeSource('gps-pos');}catch(e){}
+  if(currentLat===null)return;
+  mapInstance.addSource('gps-pos',{type:'geojson',data:{type:'Feature',geometry:{type:'Point',coordinates:[currentLon,currentLat]}}});
+  mapInstance.addLayer({id:'gps-accuracy',type:'circle',source:'gps-pos',paint:{'circle-radius':18,'circle-color':'rgba(105,240,174,0.15)','circle-stroke-width':1,'circle-stroke-color':'rgba(105,240,174,0.3)'}});
+  mapInstance.addLayer({id:'gps-dot',type:'circle',source:'gps-pos',paint:{'circle-radius':7,'circle-color':'#69F0AE','circle-stroke-width':2,'circle-stroke-color':'#fff'}});
+}
+
+function showMapPopup(lat,lon,title,locType,spokenText,nearbyIdx){
+  if(mapPopup){mapPopup.remove();mapPopup=null;}
+  var html='<div class="popup-title">'+escHtml(title)+'</div>';
+  html+='<div class="popup-type">'+escHtml(locType||'')+'</div>';
+  if(spokenText){html+='<div style="font-size:11px;color:rgba(255,255,255,0.55);line-height:1.4;margin-bottom:4px;">'+escHtml(spokenText)+'</div>';}
+  html+='<div class="popup-actions">';
+  // Always show speak — use nearbyIdx if valid (marks as heard), else speak text directly
+  if(nearbyIdx>=0&&nearbyIdx<nearbyCache.length){
+    html+='<button class="popup-btn popup-btn-speak" onclick="speakMapItem('+nearbyIdx+')">▶ Speak</button>';
+  } else if(spokenText){
+    html+='<button class="popup-btn popup-btn-speak" onclick="speakMapText(\''+escAttr(spokenText)+'\',\''+escAttr(title)+'\')">▶ Speak</button>';
+  }
+  html+='<button class="popup-btn popup-btn-maps" onclick="openInMaps('+lat+','+lon+',\''+escAttr(title)+'\')">🗺 Maps</button>';
+  html+='</div>';
+  mapPopup=new maplibregl.Popup({closeButton:true,maxWidth:'240px'})
+    .setLngLat([lon,lat])
+    .setHTML(html)
+    .addTo(mapInstance);
+}
+
+function speakMapItem(idx){
+  if(!dbReady)return;
+  var item=nearbyCache[idx];if(!item)return;
+  if(speaking){iappyx.tts.stop();speaking=false;}
+  speak(item);
+  showToast('Speaking: '+item.title);
+  if(mapPopup)mapPopup.remove();
+}
+
+// Speak any text without requiring tracking (used by map popup for non-nearby items)
+function speakMapText(text,title){
+  if(!text){showToast('No text available');return;}
+  if(speaking){iappyx.tts.stop();speaking=false;}
+  iappyx.tts.setLanguage(appState.lang==='nl'?'nl':'en');
+  iappyx.tts.setRate('0.9');
+  speaking=true;
+  var cbId='tts_map_'+Date.now();
+  window._iappyxCb=window._iappyxCb||{};
+  window._iappyxCb[cbId]=function(){speaking=false;};
+  setTimeout(function(){if(speaking)speaking=false;},30000);
+  iappyx.tts.speakWithCallback(text,'window._iappyxCb.'+cbId);
+  showToast('Speaking: '+title);
+  if(mapPopup)mapPopup.remove();
+}
+
+// ── MAP AREA QUERY (show items in viewport) ──
+var mapAreaQueryTimer=null;
+function onMapMoveEnd(){
+  clearTimeout(mapAreaQueryTimer);
+  mapAreaQueryTimer=setTimeout(queryMapArea,300);
+}
+
+function queryMapArea(){
+  if(!mapReady||!dbReady||!mapInstance)return;
+  var zoom=mapInstance.getZoom();
+  if(zoom<8){
+    // Too zoomed out — clear map view cache to avoid rendering thousands of items
+    if(mapViewCache.length>0){mapViewCache=[];updateMapMarkers();}
+    setMapStatus('Zoom in to see locations');
+    return;
+  }
+  setMapStatus('');
+  var bounds=mapInstance.getBounds();
+  var minLat=bounds.getSouth(),maxLat=bounds.getNorth();
+  var minLon=bounds.getWest(),maxLon=bounds.getEast();
+  var enabledTypes=[];
+  for(var t in appState.types){if(appState.types[t])enabledTypes.push(t);}
+  if(enabledTypes.length===0){mapViewCache=[];updateMapMarkers();return;}
+  // Limit per query based on zoom to keep performance reasonable
+  var limit=zoom>=12?200:100;
+  var placeholders=enabledTypes.map(function(){return'?';}).join(',');
+  var sql='SELECT l.id,l.title,l.lat,l.lon,l.type,lt.spoken_text '+
+    'FROM locations l JOIN location_texts lt ON lt.location_id=l.id '+
+    'WHERE lt.language=? AND l.lat BETWEEN ? AND ? AND l.lon BETWEEN ? AND ? '+
+    'AND (l.type IS NULL OR l.type IN ('+placeholders+')) LIMIT '+limit;
+  var params=JSON.stringify([appState.lang,minLat,maxLat,minLon,maxLon].concat(enabledTypes));
+  try{
+    var res=JSON.parse(iappyx.sqlite.query(sql,params));
+    if(!res||!res.ok)return;
+    mapViewCache=[];
+    for(var i=0;i<res.rows.length;i++){
+      var row=res.rows[i];
+      mapViewCache.push({id:row.id,title:row.title,lat:row.lat,lon:row.lon,
+        type:row.type||'other',spoken_text:row.spoken_text||'',heard:false});
+    }
+    updateMapMarkers();
+    if(res.rows.length>=limit)setMapStatus('Showing '+limit+' locations — zoom in for more');
+  }catch(e){}
+}
+
+function flyToOnMap(lat,lon,title,locType,snippet){
+  showScreen('map');
+  if(!mapReady){
+    // Queue fly-to after map loads
+    setTimeout(function(){flyToOnMap(lat,lon,title,locType,snippet);},500);return;
+  }
+  mapInstance.flyTo({center:[lon,lat],zoom:14,duration:1200});
+  setTimeout(function(){
+    showMapPopup(lat,lon,title,locType,snippet,-1);
+  },1300);
+}
+
+function showNearbyOnMap(){
+  if(!mapReady||nearbyCache.length===0)return;
+  var bounds=new maplibregl.LngLatBounds();
+  for(var i=0;i<nearbyCache.length;i++){bounds.extend([nearbyCache[i].lon,nearbyCache[i].lat]);}
+  if(currentLat!==null)bounds.extend([currentLon,currentLat]);
+  mapInstance.fitBounds(bounds,{padding:60,maxZoom:14,duration:1000});
+}
+
+function mapFlyToGPS(){
+  if(!mapReady)return;
+  if(currentLat===null){
+    // Try one-shot GPS
+    var cbId='map_gps_'+Date.now();
+    window._iappyxCb=window._iappyxCb||{};
+    window._iappyxCb[cbId]=function(r){
+      if(r.ok){currentLat=r.lat;currentLon=r.lon;updateMapGpsMarker();mapInstance.flyTo({center:[r.lon,r.lat],zoom:13,duration:1000});}
+      else showToast('Could not get location');
+    };
+    iappyx.location.getLocation(cbId);
+  }else{
+    mapInstance.flyTo({center:[currentLon,currentLat],zoom:13,duration:800});
+  }
+}
+
+function setMapStatus(msg){
+  document.getElementById('mapStatusBar').textContent=msg;
+}
+
+// ── SETTINGS ──
+var ALL_TYPES=['village','hamlet','city','town','municipality','neighbourhood','church','monastery','museum','castle','windmill','building','bridge','railway station','park','nature reserve','lake','canal','river','cemetery','airport','port','other','skip'];
+
+function renderTypeGrid(){
+  var html='';
+  for(var i=0;i<ALL_TYPES.length;i++){
+    var t=ALL_TYPES[i];var checked=appState.types[t]?'checked':'';
+    var bc='badge badge-'+(t.replace(/\s+/g,'-'));
+    html+='<label class="type-toggle-item"><span class="'+bc+'" style="flex-shrink:0">'+escHtml(t)+'</span><span class="type-toggle-label"></span><label class="toggle"><input type="checkbox" '+checked+' onchange="setType(\''+t+'\',this.checked)"><div class="toggle-track"></div><div class="toggle-thumb"></div></label></label>';
+  }
+  document.getElementById('typeGrid').innerHTML=html;
+}
+
+function setType(t,val){appState.types[t]=val;saveAppState();}
+
+function enableAllTypes(){
+  for(var t in appState.types)appState.types[t]=true;
+  for(var i=0;i<ALL_TYPES.length;i++)appState.types[ALL_TYPES[i]]=true;
+  renderTypeGrid();saveAppState();showToast('All types enabled');
+}
+
+function setLang(l){
+  appState.lang=l;ttsLang=l;
+  if(tracking)iappyx.tts.setLanguage(l==='nl'?'nl':'en');
+  updateSegments();saveAppState();
+  if(dbReady){
+    try{
+      var ti=JSON.parse(iappyx.sqlite.query('SELECT COUNT(*) as n FROM location_texts WHERE language=?',JSON.stringify([l])));
+      var li=JSON.parse(iappyx.sqlite.query('SELECT COUNT(*) as n FROM locations',null));
+      document.getElementById('dbInfo').textContent=li.rows[0].n.toLocaleString()+' locations · '+ti.rows[0].n.toLocaleString()+' '+l.toUpperCase()+' texts';
+    }catch(e){}
+  }
+}
+
+function setRadius(r){appState.radius=r;document.getElementById('radiusLabel').textContent=r>=1000?(r/1000)+'km':r+' m';updateSegments();saveAppState();}
+function setGap(g){appState.gap=g;document.getElementById('gapLabel').textContent=g+' seconds';updateSegments();saveAppState();}
+function setSpeedGate(s){appState.speedGate=s;document.getElementById('speedGateLabel').textContent=s===0?'Always speak':'Speak above '+s+' km/h';updateSegments();saveAppState();}
+
+function updateSegments(){
+  var lb=document.querySelectorAll('#langSeg .seg-btn');
+  lb[0].className='seg-btn'+(appState.lang==='en'?' active':'');lb[1].className='seg-btn'+(appState.lang==='nl'?' active':'');
+  var rv=[200,500,1000,2000],rb=document.querySelectorAll('#radiusSeg .seg-btn');
+  for(var i=0;i<rb.length;i++)rb[i].className='seg-btn'+(rv[i]===appState.radius?' active':'');
+  document.getElementById('radiusLabel').textContent=appState.radius>=1000?(appState.radius/1000)+'km':appState.radius+' m';
+  var gv=[15,30,60],gb=document.querySelectorAll('#gapSeg .seg-btn');
+  for(var i=0;i<gb.length;i++)gb[i].className='seg-btn'+(gv[i]===appState.gap?' active':'');
+  document.getElementById('gapLabel').textContent=appState.gap+' seconds';
+  var sv=[0,5,15,30],sb=document.querySelectorAll('#speedSeg .seg-btn');
+  for(var i=0;i<sb.length;i++)sb[i].className='seg-btn'+(sv[i]===appState.speedGate?' active':'');
+  document.getElementById('speedGateLabel').textContent=appState.speedGate===0?'Always speak':'Speak above '+appState.speedGate+' km/h';
+}
+
+function clearHeard(){
+  if(!dbReady)return;
+  try{iappyx.sqlite.exec('DELETE FROM heard',null);updateHeardCount();showToast('Heard list cleared');}catch(e){}
+}
+
+function updateHeardCount(){
+  if(!dbReady)return;
+  try{
+    var cutoff=Date.now()-24*60*60*1000;
+    var res=JSON.parse(iappyx.sqlite.query('SELECT COUNT(*) as n FROM heard WHERE heard_at>?',JSON.stringify([cutoff])));
+    var n=res.rows[0].n;
+    document.getElementById('heardCount').textContent=n;
+    document.getElementById('heardLabel').textContent=n+' locations heard today';
+  }catch(e){}
+}
+
+// ── HELPERS ──
+function setStatus(appSt,icon,label,detail){
+  var orb=document.getElementById('statusOrb');orb.className='status-orb '+appSt;
+  document.getElementById('statusIcon').textContent=icon;
+  document.getElementById('statusLabel').textContent=label;
+  document.getElementById('statusDetail').textContent=detail;
+}
+
+function haversine(lat1,lon1,lat2,lon2){
+  var R=6371000,dLat=(lat2-lat1)*Math.PI/180,dLon=(lon2-lon1)*Math.PI/180;
+  var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2);
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function escAttr(s){return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");}
+
+function showScreen(name){
+  document.querySelectorAll('.screen,.screen-map').forEach(function(s){s.classList.remove('active');});
+  document.querySelectorAll('.nav-btn').forEach(function(b){b.classList.remove('active');});
+  var el=document.getElementById('screen-'+name);if(el)el.classList.add('active');
+  var nb=document.getElementById('nav-'+name);if(nb)nb.classList.add('active');
+  if(name==='nearby')updateNearbyUI();
+  if(name==='settings'){updateHeardCount();checkMapFileStatus();}
+  if(name==='search'){if(searchResults.length>0)renderSearchResults();setTimeout(function(){document.getElementById('searchInput').focus();},100);}
+  if(name==='map'){
+    if(mapReady){
+      mapInstance.resize();
+      mapFlyToGPS();        // zoom to current location immediately
+    }else{
+      loadMapLibs();        // auto-load; will zoom to GPS in the load callback
+    }
+  }
+}
+
+var toastTimer=null;
+function showToast(msg,dur){
+  var t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+  clearTimeout(toastTimer);toastTimer=setTimeout(function(){t.classList.remove('show');},dur||2500);
+}
+
+function saveAppState(){iappyx.save('roadtrip_state',JSON.stringify(appState));}
+
+function loadAppState(){
+  var saved=iappyx.load('roadtrip_state');
+  if(saved){try{var s=JSON.parse(saved);if(s.lang!==undefined)appState.lang=s.lang;if(s.radius!==undefined)appState.radius=s.radius;if(s.gap!==undefined)appState.gap=s.gap;if(s.speedGate!==undefined)appState.speedGate=s.speedGate;if(s.types!==undefined){for(var t in s.types)appState.types[t]=s.types[t];}}catch(e){}}
+}
+</script>
+</body></html>

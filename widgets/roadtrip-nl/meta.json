@@ -1,0 +1,14 @@
+{
+  "title": "Road Trip NL",
+  "description": "A driving companion that announces nearby locations as you drive through the Netherlands. Bundled offline database with thousands of locations.",
+  "author": "iappyx",
+  "bridges": [
+    "location",
+    "screen",
+    "sqlite",
+    "storage",
+    "tts",
+    "vibration"
+  ],
+  "added": "2026-05-02"
+}
