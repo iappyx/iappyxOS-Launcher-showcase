@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="iappyx-widget" content="keepAlive">
+<title>Radio Player</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{width:100%;height:100%;overflow:hidden;}
+</style>
+</head><body>
+<div id="loader" style="display:flex;align-items:center;justify-content:center;height:100vh;background:#1a1a2e;color:white;font-family:sans-serif;font-size:14px">⏳ Loading Radio Player…</div>
+<script>
+function _initBridge(){
+  if(typeof iappyx==='undefined'){setTimeout(_initBridge,50);return;}
+  onReady();
+}
+window.addEventListener('load',function(){setTimeout(_initBridge,200)});
+
+// Reconcile JS UI state with AudioService's actual playback state. Needed
+// because in widget context the launcher process can be killed while the
+// FGS keeps streaming; when the JS reboots, `appPlaying` is fresh-false
+// but audio is actually playing. Without this, the play button shows ▶
+// while music plays.
+//
+// This is a string (not a function) so we can inject it as a literal
+// <script> into the fetched HTML — once the full radio-player code has
+// defined updateUI / startViz / startMetaFetch / appPlaying, our probe
+// flips the state to match reality.
+var SYNC_PROBE = "<" + "script>(function(){" +
+  "function sync(){" +
+    "try{" +
+      "if(typeof iappyx==='undefined'||typeof iappyx.audio==='undefined')return;" +
+      "var actuallyPlaying=false;" +
+      "try{actuallyPlaying=iappyx.audio.isPlaying();}catch(e){}" +
+      "if(actuallyPlaying&&typeof appPlaying!=='undefined'&&!appPlaying){" +
+        "appPlaying=true;" +
+        "if(typeof updateUI==='function')updateUI(true);" +
+        "if(typeof setStatus==='function'){var s=(typeof T==='function')?T('statusLive'):'Live';setStatus(s,'live');}" +
+        "if(typeof startViz==='function')startViz();" +
+        "if(typeof startMetaFetch==='function')startMetaFetch();" +
+        "if(typeof startListenTimer==='function')startListenTimer();" +
+      "}" +
+    "}catch(e){}" +
+  "}" +
+  // Multiple attempts — the radio-player code may not have finished its
+  // STATIONS load by the first tick. After ~3s if nothing matched, give up.
+  "setTimeout(sync,400);" +
+  "setTimeout(sync,1200);" +
+  "setTimeout(sync,3000);" +
+  // Also resync whenever the page becomes visible again (covers the case
+  // where the user swiped to another launcher page mid-playback and came
+  // back; keepAlive prevents WebView pause but doesn't hurt to double-check).
+  "document.addEventListener('visibilitychange',function(){if(!document.hidden)sync();});" +
+"})();<" + "/" + "script>";
+
+function onReady(){
+  var cbId='radio_load_'+Date.now()+'_'+Math.random().toString(36).substr(2,5);
+  var timeoutHandle=setTimeout(function(){
+    if(window._iappyxCb&&window._iappyxCb[cbId]){
+      delete window._iappyxCb[cbId];
+      document.open();
+      document.write('<div style="padding:20px;color:#ff6b6b;font-family:monospace;background:#1a1a2e;height:100vh">Failed to load. Error: Request timed out after 30 seconds</div>');
+      document.close();
+    }
+  },30000);
+
+  window._iappyxCb=window._iappyxCb||{};
+  window._iappyxCb[cbId]=function(result){
+    clearTimeout(timeoutHandle);
+    if(!result||!result.ok||!result.body||result.body.length<10){
+      var errMsg=result&&result.error?result.error:(result&&result.status?'HTTP '+result.status:'Empty response');
+      document.open();
+      document.write('<div style="padding:20px;color:#ff6b6b;font-family:monospace;background:#1a1a2e;height:100vh">Failed to load. Error: '+errMsg+'</div>');
+      document.close();
+      return;
+    }
+    try{
+      var html=result.body;
+      // Inject the playback-state sync probe just before </body> so it runs
+      // after the showcase HTML's globals (updateUI, appPlaying, etc.) are
+      // defined. Falls back to appending if there's no </body>.
+      var bodyClose=html.lastIndexOf('</body>');
+      if(bodyClose!==-1){
+        html=html.substring(0,bodyClose)+SYNC_PROBE+html.substring(bodyClose);
+      }else{
+        html=html+SYNC_PROBE;
+      }
+      document.open();
+      document.write(html);
+      document.close();
+    }catch(e){
+      document.open();
+      document.write('<div style="padding:20px;color:#ff6b6b;font-family:monospace;background:#1a1a2e;height:100vh">Failed to load. Error: '+e+'</div>');
+      document.close();
+    }
+  };
+
+  try{
+    iappyx.httpClient.request(
+      JSON.stringify({
+        url:'https://raw.githubusercontent.com/iappyx/iappyxOS-showcase/refs/heads/main/radio-player/app.html',
+        method:'GET',
+        timeout:30000
+      }),
+      cbId
+    );
+  }catch(e){
+    clearTimeout(timeoutHandle);
+    if(window._iappyxCb&&window._iappyxCb[cbId]){
+      delete window._iappyxCb[cbId];
+    }
+    document.open();
+    document.write('<div style="padding:20px;color:#ff6b6b;font-family:monospace;background:#1a1a2e;height:100vh">Failed to load. Error: '+e+'</div>');
+    document.close();
+  }
+}
+</script>
+</body></html>
