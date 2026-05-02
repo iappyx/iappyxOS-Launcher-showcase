@@ -63,8 +63,6 @@ body{font-family:-apple-system,sans-serif;background:#0d0d1a;color:#eaeaea;min-h
 .btn-edit-pill:active{border-color:var(--accent);color:var(--accent);}
 
 .player-card{position:relative;z-index:1;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:24px 24px 28px;overflow:hidden;touch-action:pan-y;}
-.swipe-hint{position:absolute;top:50%;transform:translateY(-50%);font-size:22px;opacity:0;transition:opacity 0.15s;pointer-events:none;color:rgba(255,255,255,0.3);}
-.swipe-hint.left{left:8px;}.swipe-hint.right{right:8px;}
 
 .logo-area{display:flex;flex-direction:column;align-items:center;flex:1;justify-content:center;gap:0;}
 .logo-ring{width:180px;height:180px;border-radius:50%;background:rgba(0,0,0,0.5);border:1.5px solid rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;position:relative;transition:border-color 0.5s,box-shadow 0.5s;cursor:pointer;overflow:visible;}
@@ -352,9 +350,6 @@ body{font-family:-apple-system,sans-serif;background:#0d0d1a;color:#eaeaea;min-h
   </div>
 
   <div class="player-card" id="playerCard" style="display:none;">
-    <span class="swipe-hint left" id="hintL">‹</span>
-    <span class="swipe-hint right" id="hintR">›</span>
-
     <div class="logo-area">
       <div class="logo-ring" id="logoRing" onclick="cycleVizMode()">
         <canvas class="viz-canvas" id="visualizer"></canvas>
@@ -469,7 +464,6 @@ var sleepTimerId=null,sleepTimerEnd=0;
 var wakeTimerId=null,wakeActive=false,wakeTimeStr='';
 var listenStartMs=0,listenIntervalId=null,reconnectTimer=null,reconnectCount=0;
 var fadeIntervalId=null,currentNowPlaying='';
-var swipeStartX=0,swipeStartY=0,swipeMoved=false;
 var shakeEnabled=false;
 var COLOR_POOL=['#4FC3F7','#FF8A65','#E040FB','#A5D6A7','#FFD54F','#F48FB1','#CE93D8','#80DEEA','#FFAB40','#69F0AE','#EF9A9A','#90CAF9'];
 
@@ -659,7 +653,7 @@ function onReady(){
   var savedMode=iappyx.load('app_mode');
   if(savedMode==='podcast'&&PODCASTS.length>0)appMode='podcast';
 
-  renderAll();initSwipe();
+  renderAll();
   var sh=iappyx.load('radio_shake');shakeEnabled=(sh==='1');applyShakeSetting();if(shakeEnabled)initShake();
   updateTimersBadge();
   setLang(LANG);
@@ -1056,40 +1050,6 @@ function selectStation(idx){
   switchMode('radio');
   applyStation(currentStationIdx,was);
   buildItemBar();
-}
-
-function initSwipe(){
-  var card=document.getElementById('playerCard');
-  var swipeBlocked=false;
-  // Ignore swipes that start on interactive controls — sliders, buttons, inputs.
-  // Otherwise dragging the volume/scrubber horizontally triggers station-switch.
-  function isInteractive(el){
-    while(el&&el!==card){
-      var tag=el.tagName;
-      if(tag==='INPUT'||tag==='BUTTON'||tag==='SELECT'||tag==='TEXTAREA'||tag==='A')return true;
-      if(el.classList&&(el.classList.contains('btn-icon')||el.classList.contains('btn-play')||el.classList.contains('vol-slider')||el.classList.contains('pod-scrubber')))return true;
-      el=el.parentElement;
-    }
-    return false;
-  }
-  card.addEventListener('touchstart',function(e){
-    swipeBlocked=isInteractive(e.target);
-    swipeStartX=e.touches[0].clientX;swipeStartY=e.touches[0].clientY;swipeMoved=false;
-  },{passive:true});
-  card.addEventListener('touchmove',function(e){
-    if(swipeBlocked)return;
-    var dx=e.touches[0].clientX-swipeStartX,dy=e.touches[0].clientY-swipeStartY;
-    if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>10){swipeMoved=true;document.getElementById('hintL').style.opacity=dx>0?'0.5':'0';document.getElementById('hintR').style.opacity=dx<0?'0.5':'0';}
-  },{passive:true});
-  card.addEventListener('touchend',function(e){
-    document.getElementById('hintL').style.opacity='0';document.getElementById('hintR').style.opacity='0';
-    if(swipeBlocked||!swipeMoved)return;
-    var dx=e.changedTouches[0].clientX-swipeStartX;
-    if(Math.abs(dx)>50){
-      if(appMode==='radio'&&STATIONS.length>1)selectStation(dx<0?(currentStationIdx+1)%STATIONS.length:(currentStationIdx-1+STATIONS.length)%STATIONS.length);
-      else if(appMode==='podcast'&&PODCASTS.length>1)podSelect(dx<0?(podIdx+1)%PODCASTS.length:(podIdx-1+PODCASTS.length)%PODCASTS.length);
-    }
-  },{passive:true});
 }
 
 var lastShakeMs=0;
