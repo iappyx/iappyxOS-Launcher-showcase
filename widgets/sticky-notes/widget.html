@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="iappyx-widget" content="pause">
+<title>Sticky Notes</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&family=Caveat:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+*:focus{outline:none}
+button{-webkit-appearance:none;background:none;border:none;color:inherit;font:inherit;cursor:pointer}
+input,textarea,select{-webkit-appearance:none;font:inherit}
+
+html,body{
+  width:100%;height:100%;
+  background:transparent;
+  font-family:'Nunito',-apple-system,Roboto,system-ui,sans-serif;
+  overflow:hidden;
+  user-select:none;
+  -webkit-user-select:none;
+}
+
+#canvas{
+  position:relative;
+  width:100%;height:100%;
+  overflow:hidden;
+}
+
+/* ══════════════════════════════
+   FAB ADD BUTTON
+══════════════════════════════ */
+#addBtn{
+  position:fixed;
+  bottom:80px;right:16px;
+  width:52px;height:52px;
+  border-radius:50%;
+  background:linear-gradient(145deg,rgba(255,255,255,0.38) 0%,rgba(255,255,255,0.12) 100%);
+  backdrop-filter:blur(20px);
+  -webkit-backdrop-filter:blur(20px);
+  border:1.5px solid rgba(255,255,255,0.55);
+  box-shadow:
+    0 8px 32px rgba(0,0,0,0.22),
+    0 2px 8px rgba(0,0,0,0.14),
+    inset 0 1px 0 rgba(255,255,255,0.6);
+  display:flex;align-items:center;justify-content:center;
+  z-index:200;
+  transition:transform .18s cubic-bezier(.34,1.56,.64,1), box-shadow .18s ease;
+  -webkit-transition:transform .18s cubic-bezier(.34,1.56,.64,1), box-shadow .18s ease;
+}
+#addBtn:active{
+  transform:scale(.86);
+  box-shadow:0 4px 14px rgba(0,0,0,0.18),inset 0 1px 0 rgba(255,255,255,0.5);
+}
+.fabIcon{
+  font-size:28px;
+  font-weight:300;
+  color:#fff;
+  line-height:1;
+  text-shadow:0 1px 4px rgba(0,0,0,0.25);
+  margin-top:-1px;
+}
+
+/* ══════════════════════════════
+   ARCHIVE PILE
+══════════════════════════════ */
+#archivePile{
+  position:fixed;
+  bottom:10px;left:50%;
+  transform:translateX(-50%);
+  width:120px;height:52px;
+  cursor:pointer;
+  z-index:200;
+  display:none;
+  touch-action:none;
+}
+.pileCard{
+  position:absolute;
+  bottom:0;left:50%;
+  width:86px;height:38px;
+  border-radius:10px;
+  box-shadow:0 4px 14px rgba(0,0,0,0.22);
+  border:1px solid rgba(255,255,255,0.5);
+  transform-origin:bottom center;
+  transition:transform .32s cubic-bezier(.34,1.56,.64,1);
+}
+#archiveBadge{
+  position:absolute;
+  top:-6px;right:10px;
+  background:linear-gradient(145deg,#ff3b30,#ff6b6b);
+  color:#fff;
+  font-size:10px;font-weight:700;
+  font-family:'Nunito',sans-serif;
+  min-width:18px;height:18px;
+  border-radius:9px;
+  padding:0 4px;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 2px 8px rgba(255,59,48,0.45);
+  transition:transform .22s cubic-bezier(.34,1.56,.64,1);
+}
+#archiveBadge.bump{transform:scale(1.4);}
+#pileLabel{
+  position:absolute;
+  bottom:7px;left:0;right:0;
+  text-align:center;
+  font-size:9px;font-weight:700;
+  font-family:'Nunito',sans-serif;
+  color:rgba(255,255,255,0.92);
+  text-shadow:0 1px 4px rgba(0,0,0,0.5);
+  letter-spacing:.6px;
+  text-transform:uppercase;
+}
+
+/* ══════════════════════════════
+   STICKY NOTE
+══════════════════════════════ */
+.note{
+  position:absolute;
+  width:138px;
+  min-height:110px;
+  border-radius:16px;
+  padding:0 0 12px 0;
+  display:flex;flex-direction:column;
+  transition:transform .32s cubic-bezier(.34,1.56,.64,1), opacity .28s ease;
+  z-index:10;
+  overflow:hidden;
+  touch-action:none;
+}
+.notePaper{
+  position:absolute;inset:0;
+  border-radius:16px;
+  pointer-events:none;
+  z-index:0;
+}
+.noteHighlight{
+  position:absolute;
+  top:0;left:0;right:0;
+  height:2px;
+  border-radius:16px 16px 0 0;
+  background:rgba(255,255,255,0.72);
+  pointer-events:none;
+  z-index:2;
+}
+.noteInner{
+  position:relative;
+  z-index:1;
+  display:flex;flex-direction:column;
+  flex:1;
+}
+
+.note::after{
+  content:'';
+  position:absolute;inset:0;
+  border-radius:16px;
+  box-shadow:
+    0 2px 8px rgba(0,0,0,0.08),
+    0 8px 28px rgba(0,0,0,0.14),
+    0 20px 60px rgba(0,0,0,0.08),
+    inset 0 0 0 1px rgba(255,255,255,0.55);
+  pointer-events:none;
+  z-index:3;
+}
+
+.note.dragging{
+  transition:opacity .2s ease;
+  z-index:100!important;
+}
+.note.dragging::after{
+  box-shadow:
+    0 4px 14px rgba(0,0,0,0.12),
+    0 18px 50px rgba(0,0,0,0.22),
+    0 40px 80px rgba(0,0,0,0.12),
+    inset 0 0 0 1px rgba(255,255,255,0.55);
+}
+.note.entering{
+  animation:noteSpringIn .42s cubic-bezier(.34,1.56,.64,1) forwards;
+}
+.note.leaving{
+  animation:noteOut .26s cubic-bezier(.4,0,1,1) forwards;
+}
+@keyframes noteSpringIn{
+  from{opacity:0;transform:var(--rot) scale(.52) translateY(12px);}
+  to{opacity:1;transform:var(--rot) scale(1) translateY(0);}
+}
+@keyframes noteOut{
+  from{opacity:1;transform:var(--rot) scale(1);}
+  to{opacity:0;transform:var(--rot) scale(.44) translateY(30px);}
+}
+
+.dragHandle{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:100%;
+  height:24px;
+  cursor:grab;
+  touch-action:none;
+  flex-shrink:0;
+  border-radius:16px 16px 0 0;
+  position:relative;
+  z-index:1;
+}
+.dragHandle:active{cursor:grabbing;}
+.gripPill{
+  width:32px;height:4px;
+  border-radius:2px;
+  transition:transform .15s ease, opacity .15s ease;
+}
+.dragHandle:active .gripPill{
+  transform:scaleX(.85);
+  opacity:.7;
+}
+
+.noteTop{
+  display:flex;align-items:center;justify-content:flex-end;
+  gap:3px;
+  padding:0 8px 4px 8px;
+  opacity:0;
+  transition:opacity .2s ease;
+  position:relative;z-index:1;
+}
+.note:hover .noteTop,
+.note.focused .noteTop{
+  opacity:1;
+}
+.noteBtn{
+  width:24px;height:24px;
+  border-radius:50%;
+  background:rgba(0,0,0,0.1);
+  display:flex;align-items:center;justify-content:center;
+  font-size:11px;
+  transition:background .12s ease, transform .14s cubic-bezier(.34,1.56,.64,1);
+  flex-shrink:0;
+  color:rgba(0,0,0,0.5);
+  touch-action:none;
+}
+.noteBtn:active{
+  background:rgba(0,0,0,0.22);
+  transform:scale(.82);
+}
+
+.noteText{
+  width:100%;
+  flex:1;
+  background:transparent;
+  border:none;
+  resize:none;
+  font-family:'Caveat','Nunito',sans-serif;
+  font-size:14px;
+  font-weight:600;
+  line-height:1.5;
+  color:rgba(0,0,0,0.62);
+  min-height:58px;
+  overflow:hidden;
+  cursor:text;
+  word-break:break-word;
+  touch-action:auto;
+  user-select:text;
+  -webkit-user-select:text;
+  padding:0 12px 0 14px;
+  position:relative;z-index:1;
+}
+.noteText::placeholder{
+  color:rgba(0,0,0,0.28);
+  font-style:italic;
+}
+
+/* ══════════════════════════════
+   DELETE CONFIRM DIALOG
+══════════════════════════════ */
+#confirmOverlay{
+  position:fixed;inset:0;
+  background:rgba(0,0,0,0.40);
+  backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);
+  z-index:900;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  opacity:0;
+  transition:opacity .22s ease;
+  touch-action:none;
+}
+#confirmOverlay.open{display:flex;}
+#confirmOverlay.visible{opacity:1;}
+
+#confirmDialog{
+  width:220px;
+  border-radius:22px;
+  background:rgba(255,255,255,0.22);
+  backdrop-filter:blur(30px);
+  -webkit-backdrop-filter:blur(30px);
+  border:1px solid rgba(255,255,255,0.45);
+  box-shadow:0 12px 48px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.6);
+  padding:22px 18px 16px;
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+  transform:scale(.82) translateY(8px);
+  transition:transform .28s cubic-bezier(.34,1.56,.64,1), opacity .22s ease;
+  opacity:0;
+  touch-action:none;
+}
+#confirmOverlay.visible #confirmDialog{
+  transform:scale(1) translateY(0);
+  opacity:1;
+}
+
+#confirmIcon{
+  font-size:30px;
+  line-height:1;
+  filter:drop-shadow(0 2px 6px rgba(0,0,0,0.18));
+}
+#confirmTitle{
+  font-size:14px;font-weight:700;
+  font-family:'Nunito',sans-serif;
+  color:rgba(255,255,255,0.95);
+  text-shadow:0 1px 4px rgba(0,0,0,0.2);
+  text-align:center;
+  line-height:1.35;
+}
+#confirmSub{
+  font-size:11px;font-weight:600;
+  font-family:'Nunito',sans-serif;
+  color:rgba(255,255,255,0.58);
+  text-align:center;
+  line-height:1.4;
+  padding:0 4px;
+}
+#confirmActions{
+  display:flex;gap:8px;width:100%;margin-top:4px;
+}
+.confirmBtn{
+  flex:1;
+  height:38px;
+  border-radius:13px;
+  font-size:13px;font-weight:700;
+  font-family:'Nunito',sans-serif;
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .15s cubic-bezier(.34,1.56,.64,1), background .12s ease;
+  touch-action:none;
+  cursor:pointer;
+}
+.confirmBtn:active{transform:scale(.88);}
+#confirmCancel{
+  background:rgba(255,255,255,0.18);
+  color:rgba(255,255,255,0.85);
+  border:1px solid rgba(255,255,255,0.3);
+}
+#confirmCancel:active{background:rgba(255,255,255,0.28);}
+#confirmDelete{
+  background:linear-gradient(145deg,#ff3b30,#ff6060);
+  color:#fff;
+  border:none;
+  box-shadow:0 4px 14px rgba(255,59,48,0.38);
+}
+#confirmDelete:active{background:linear-gradient(145deg,#e0342a,#e85050);}
+
+/* ══════════════════════════════
+   ARCHIVE DRAWER
+══════════════════════════════ */
+#archiveOverlay{
+  position:fixed;inset:0;
+  background:rgba(0,0,0,0.35);
+  backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
+  z-index:500;
+  display:none;
+  opacity:0;
+  transition:opacity .3s ease;
+  flex-direction:column;
+  touch-action:none;
+}
+#archiveOverlay.open{display:flex;}
+#archiveOverlay.visible{opacity:1;}
+
+#archiveDrawer{
+  margin-top:auto;
+  width:100%;
+  max-height:84%;
+  border-radius:24px 24px 0 0;
+  background:rgba(255,255,255,0.18);
+  backdrop-filter:blur(28px);
+  -webkit-backdrop-filter:blur(28px);
+  border-top:1px solid rgba(255,255,255,0.35);
+  box-shadow:0 -8px 40px rgba(0,0,0,0.18);
+  display:flex;flex-direction:column;
+  transform:translateY(100%);
+  transition:transform .42s cubic-bezier(.32,1.28,.4,1);
+  overflow:hidden;
+  touch-action:pan-y;
+}
+#archiveDrawer.open{transform:translateY(0);}
+
+#drawerPill{
+  width:36px;height:5px;
+  background:rgba(255,255,255,0.5);
+  border-radius:3px;
+  margin:12px auto 6px;
+  flex-shrink:0;
+}
+#drawerTitle{
+  text-align:center;
+  font-size:14px;font-weight:700;
+  font-family:'Nunito',sans-serif;
+  color:rgba(255,255,255,0.92);
+  padding:2px 0 12px;
+  letter-spacing:.2px;
+  flex-shrink:0;
+  text-shadow:0 1px 4px rgba(0,0,0,0.2);
+}
+#archiveGrid{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:12px;
+  padding:4px 14px 24px;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  flex:1;
+  touch-action:pan-y;
+}
+#archiveGrid::-webkit-scrollbar{width:3px;}
+#archiveGrid::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.3);border-radius:2px;}
+
+.archiveCard{
+  border-radius:14px;
+  padding:10px 10px 8px;
+  min-height:90px;
+  display:flex;flex-direction:column;gap:8px;
+  animation:cardSpringIn .3s cubic-bezier(.34,1.56,.64,1) forwards;
+  border:1px solid rgba(255,255,255,0.55);
+  position:relative;overflow:hidden;
+  touch-action:none;
+}
+.archiveCard::before{
+  content:'';
+  position:absolute;top:0;left:0;right:0;height:2px;
+  background:rgba(255,255,255,0.65);
+  border-radius:14px 14px 0 0;
+}
+.archiveCard::after{
+  content:'';
+  position:absolute;inset:0;border-radius:14px;
+  box-shadow:0 4px 18px rgba(0,0,0,0.12),inset 0 0 0 .5px rgba(255,255,255,0.4);
+  pointer-events:none;
+}
+@keyframes cardSpringIn{
+  from{opacity:0;transform:scale(.78) translateY(8px);}
+  to{opacity:1;transform:scale(1) translateY(0);}
+}
+.archiveCardText{
+  flex:1;
+  font-family:'Caveat','Nunito',sans-serif;
+  font-size:12px;font-weight:600;
+  line-height:1.45;
+  color:rgba(0,0,0,0.6);
+  word-break:break-word;
+  overflow:hidden;
+  display:-webkit-box;
+  -webkit-line-clamp:5;
+  -webkit-box-orient:vertical;
+}
+.restoreBtn{
+  align-self:flex-end;
+  font-size:9.5px;font-weight:700;
+  font-family:'Nunito',sans-serif;
+  letter-spacing:.3px;
+  color:rgba(0,0,0,0.5);
+  background:rgba(255,255,255,0.55);
+  border-radius:12px;
+  padding:4px 9px;
+  transition:background .12s ease, transform .15s cubic-bezier(.34,1.56,.64,1);
+  backdrop-filter:blur(4px);
+  touch-action:none;
+}
+.restoreBtn:active{
+  background:rgba(255,255,255,0.85);
+  transform:scale(.88);
+}
+
+/* ══════════════════════════════
+   EMPTY STATE
+══════════════════════════════ */
+#emptyHint{
+  position:absolute;
+  top:50%;left:50%;
+  transform:translate(-50%,-60%);
+  text-align:center;
+  pointer-events:none;
+  animation:fadeHint 1.2s ease forwards;
+}
+@keyframes fadeHint{
+  from{opacity:0;transform:translate(-50%,-55%);}
+  to{opacity:1;transform:translate(-50%,-60%);}
+}
+#emptyHint .emptyIcon{
+  font-size:32px;
+  margin-bottom:8px;
+  display:block;
+  filter:drop-shadow(0 2px 8px rgba(0,0,0,0.2));
+}
+#emptyHint .emptyText{
+  font-size:12px;font-weight:600;
+  font-family:'Nunito',sans-serif;
+  color:rgba(255,255,255,0.6);
+  text-shadow:0 1px 4px rgba(0,0,0,0.3);
+  line-height:1.6;
+  letter-spacing:.2px;
+}
+</style>
+</head><body>
+
+<div id="canvas">
+  <div id="emptyHint">
+    <span class="emptyIcon">📌</span>
+    <div class="emptyText">Tap + to add a note</div>
+  </div>
+</div>
+
+<!-- Archive pile -->
+<div id="archivePile" onclick="openArchive()">
+  <div class="pileCard" id="pileCard3"></div>
+  <div class="pileCard" id="pileCard2"></div>
+  <div class="pileCard" id="pileCard1"></div>
+  <div id="archiveBadge">0</div>
+  <div id="pileLabel">Archive</div>
+</div>
+
+<!-- FAB -->
+<button id="addBtn" onclick="addNote()">
+  <span class="fabIcon">+</span>
+</button>
+
+<!-- Archive drawer -->
+<div id="archiveOverlay" onclick="closeArchiveOnOverlay(event)">
+  <div id="archiveDrawer">
+    <div id="drawerPill"></div>
+    <div id="drawerTitle">Archived Notes</div>
+    <div id="archiveGrid"></div>
+  </div>
+</div>
+
+<!-- Delete confirm dialog -->
+<div id="confirmOverlay" onclick="onConfirmOverlayClick(event)">
+  <div id="confirmDialog">
+    <div id="confirmIcon">🗑️</div>
+    <div id="confirmTitle">Delete this note?</div>
+    <div id="confirmSub">This cannot be undone.</div>
+    <div id="confirmActions">
+      <button class="confirmBtn" id="confirmCancel" onclick="closeConfirm()">Cancel</button>
+      <button class="confirmBtn" id="confirmDelete" onclick="confirmDelete()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════
+   PALETTE — rich iOS-style pastels
+═══════════════════════════════ */
+var COLORS = {
+  amber:   {bg:'#FFE8A3', grad:'linear-gradient(175deg,#FFF4CC 0%,#FFE08A 100%)', grip:'rgba(180,130,20,0.22)', name:'Amber'},
+  coral:   {bg:'#FFB8B8', grad:'linear-gradient(175deg,#FFD0CC 0%,#FFA0A0 100%)', grip:'rgba(180,60,60,0.20)', name:'Coral'},
+  sky:     {bg:'#B3DAFF', grad:'linear-gradient(175deg,#D0EAFF 0%,#90C8FF 100%)', grip:'rgba(30,100,190,0.18)', name:'Sky'},
+  mint:    {bg:'#B3F0C8', grad:'linear-gradient(175deg,#D0FAE0 0%,#88E4A8 100%)', grip:'rgba(20,140,70,0.18)', name:'Mint'},
+  lavender:{bg:'#D4B8FF', grad:'linear-gradient(175deg,#E8D4FF 0%,#BF98FF 100%)', grip:'rgba(100,50,200,0.18)', name:'Lavender'},
+  peach:   {bg:'#FFD4A8', grad:'linear-gradient(175deg,#FFE8CC 0%,#FFBB80 100%)', grip:'rgba(190,100,20,0.20)', name:'Peach'}
+};
+var COLOR_KEYS = Object.keys(COLORS);
+
+var CANVAS_W = window.innerWidth;
+var CANVAS_H = window.innerHeight;
+
+/* ═══ STATE ═══ */
+var appNotes    = [];
+var appArchived = [];
+
+/* Pending delete id for the confirm dialog */
+var pendingDeleteId = null;
+
+/* ═══ BRIDGE INIT ═══ */
+function _initBridge(){
+  if(typeof iappyx==='undefined'){setTimeout(_initBridge,50);return;}
+  onReady();
+}
+window.addEventListener('load',function(){setTimeout(_initBridge,200);});
+
+function onReady(){
+  appNotes    = JSON.parse(iappyx.load('stickyNotes')    || '[]');
+  appArchived = JSON.parse(iappyx.load('stickyArchived') || '[]');
+  renderAll();
+  updateArchivePile();
+}
+
+function saveNotes(){
+  iappyx.save('stickyNotes',    JSON.stringify(appNotes));
+  iappyx.save('stickyArchived', JSON.stringify(appArchived));
+}
+
+/* ═══ HELPERS ═══ */
+var _idCtr = Date.now();
+function genId(){ return 'n'+(++_idCtr); }
+function randRot(){ return (Math.random()-0.5)*8; }
+function randColorKey(){ return COLOR_KEYS[Math.floor(Math.random()*COLOR_KEYS.length)]; }
+function clamp(v,lo,hi){ return Math.min(Math.max(v,lo),hi); }
+
+function randPos(){
+  CANVAS_W = window.innerWidth;
+  CANVAS_H = window.innerHeight;
+  var nW=138, nH=120, m=16;
+  var x = m + Math.random() * clamp(CANVAS_W - nW - m*2, 1, CANVAS_W);
+  var y = m + Math.random() * clamp(CANVAS_H - nH - m*2 - 90, 1, CANVAS_H - 90);
+  return {x:Math.round(x), y:Math.round(y)};
+}
+
+function escHtml(s){
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function stopProp(e){
+  e.stopPropagation();
+  e.stopImmediatePropagation();
+}
+
+/* ═══ PAGE-SWIPE LOCK ═══ */
+function acquireSwipeLock(){
+  try{ iappyx.setSwipeLock(true); }catch(e){}
+}
+function releaseSwipeLock(){
+  try{ iappyx.setSwipeLock(false); }catch(e){}
+}
+
+/* ═══ DELETE CONFIRM DIALOG ═══ */
+function requestDeleteNote(id){
+  pendingDeleteId = id;
+  var overlay = document.getElementById('confirmOverlay');
+  overlay.style.display = 'flex';
+  requestAnimationFrame(function(){
+    overlay.classList.add('open');
+    requestAnimationFrame(function(){
+      overlay.classList.add('visible');
+    });
+  });
+  iappyx.vibration.tick();
+}
+
+function closeConfirm(){
+  var overlay = document.getElementById('confirmOverlay');
+  overlay.classList.remove('visible');
+  setTimeout(function(){
+    overlay.classList.remove('open');
+    overlay.style.display = 'none';
+    pendingDeleteId = null;
+  }, 260);
+}
+
+function confirmDelete(){
+  if(!pendingDeleteId) return;
+  var id = pendingDeleteId;
+  closeConfirm();
+  /* small delay so the dialog close animation starts before deletion */
+  setTimeout(function(){ doDeleteNote(id); }, 80);
+  iappyx.vibration.heavyClick();
+}
+
+function onConfirmOverlayClick(e){
+  if(e.target === document.getElementById('confirmOverlay')) closeConfirm();
+}
+
+/* ═══ RENDER ALL ═══ */
+function renderAll(){
+  var canvas = document.getElementById('canvas');
+  var old = canvas.querySelectorAll('.note');
+  for(var i=0;i<old.length;i++) canvas.removeChild(old[i]);
+  document.getElementById('emptyHint').style.display = appNotes.length===0 ? 'block' : 'none';
+  appNotes.forEach(function(n){ canvas.appendChild(buildNoteEl(n,false)); });
+}
+
+/* ═══ BUILD NOTE ELEMENT ═══ */
+function buildNoteEl(n, entering){
+  var col = COLORS[n.colorKey] || COLORS.amber;
+  var div = document.createElement('div');
+  div.className = 'note' + (entering ? ' entering' : '');
+  div.id = 'note_' + n.id;
+  div.style.cssText =
+    'left:'+n.x+'px;top:'+n.y+'px;' +
+    '--rot:rotate('+n.rot+'deg);' +
+    'transform:rotate('+n.rot+'deg);';
+
+  var paper = document.createElement('div');
+  paper.className = 'notePaper';
+  paper.style.background = col.grad;
+
+  var highlight = document.createElement('div');
+  highlight.className = 'noteHighlight';
+
+  var inner = document.createElement('div');
+  inner.className = 'noteInner';
+
+  var handleEl = document.createElement('div');
+  handleEl.className = 'dragHandle';
+  handleEl.id = 'handle_' + n.id;
+  var pill = document.createElement('div');
+  pill.className = 'gripPill';
+  pill.style.background = col.grip;
+  handleEl.appendChild(pill);
+
+  var noteTop = document.createElement('div');
+  noteTop.className = 'noteTop';
+  noteTop.innerHTML =
+    '<button class="noteBtn" onclick="archiveNote(\''+n.id+'\')" title="Archive" ontouchstart="stopProp(event)">📦</button>'+
+    '<button class="noteBtn" onclick="requestDeleteNote(\''+n.id+'\')" title="Delete" ontouchstart="stopProp(event)">✕</button>';
+
+  var ta = document.createElement('textarea');
+  ta.className = 'noteText';
+  ta.placeholder = 'jot something down…';
+  ta.value = n.text || '';
+  ta.addEventListener('input', function(){ onNoteInput(n.id, ta); });
+  ta.addEventListener('touchstart', function(e){ e.stopPropagation(); e.stopImmediatePropagation(); });
+  ta.addEventListener('click',      function(e){ e.stopPropagation(); e.stopImmediatePropagation(); });
+  ta.addEventListener('focus', function(){ div.classList.add('focused'); });
+  ta.addEventListener('blur',  function(){ div.classList.remove('focused'); });
+
+  inner.appendChild(handleEl);
+  inner.appendChild(noteTop);
+  inner.appendChild(ta);
+
+  div.appendChild(paper);
+  div.appendChild(highlight);
+  div.appendChild(inner);
+
+  makeDraggable(div, handleEl, n);
+  return div;
+}
+
+/* ═══ INPUT ═══ */
+function onNoteInput(id, el){
+  var n = findNote(id);
+  if(!n) return;
+  n.text = el.value;
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+  saveNotes();
+}
+
+/* ═══ DRAGGABLE ═══ */
+function makeDraggable(noteEl, handleEl, noteData){
+  var startX, startY, origX, origY, isDragging;
+
+  function onDragStart(cx, cy){
+    isDragging = false;
+    startX = cx; startY = cy;
+    origX = noteData.x; origY = noteData.y;
+    noteEl.style.zIndex = 50;
+    acquireSwipeLock();
+  }
+  function onDragMove(cx, cy){
+    if(startX === undefined) return;
+    var dx = cx - startX, dy = cy - startY;
+    if(!isDragging && (Math.abs(dx)>4 || Math.abs(dy)>4)){
+      isDragging = true;
+      noteEl.classList.add('dragging');
+      noteEl.style.transform = 'rotate('+noteData.rot+'deg) scale(1.04)';
+    }
+    if(isDragging){
+      noteData.x = clamp(origX+dx, 0, CANVAS_W-138);
+      noteData.y = clamp(origY+dy, 0, CANVAS_H-110);
+      noteEl.style.left = noteData.x+'px';
+      noteEl.style.top  = noteData.y+'px';
+    }
+  }
+  function onDragEnd(cancelled){
+    noteEl.classList.remove('dragging');
+    noteEl.style.zIndex = 10;
+    noteEl.style.transform = 'rotate('+noteData.rot+'deg)';
+    if(cancelled){
+      noteData.x = origX; noteData.y = origY;
+      noteEl.style.left = origX+'px'; noteEl.style.top = origY+'px';
+    } else if(isDragging){ saveNotes(); }
+    isDragging = false; startX = undefined;
+    releaseSwipeLock();
+  }
+
+  function isInteractive(target){
+    return !!(target && target.closest && target.closest('textarea,button,input'));
+  }
+
+  noteEl.addEventListener('touchstart',function(e){
+    if(isInteractive(e.target)) return;
+    e.stopPropagation(); e.stopImmediatePropagation(); e.preventDefault();
+    onDragStart(e.touches[0].clientX, e.touches[0].clientY);
+  },{capture:false, passive:false});
+
+  noteEl.addEventListener('touchmove',function(e){
+    if(startX === undefined) return;
+    e.stopPropagation(); e.stopImmediatePropagation(); e.preventDefault();
+    onDragMove(e.touches[0].clientX, e.touches[0].clientY);
+  },{capture:false, passive:false});
+
+  noteEl.addEventListener('touchend',function(e){
+    if(startX === undefined) return;
+    e.stopPropagation(); e.stopImmediatePropagation();
+    onDragEnd(false);
+  },{capture:false, passive:false});
+
+  noteEl.addEventListener('touchcancel',function(e){
+    if(startX === undefined) return;
+    e.stopPropagation(); e.stopImmediatePropagation();
+    onDragEnd(true);
+  },{capture:false, passive:false});
+
+  noteEl.addEventListener('pointerdown',function(e){
+    if(isInteractive(e.target)) return;
+    e.stopPropagation(); e.stopImmediatePropagation(); e.preventDefault();
+    try{ noteEl.setPointerCapture(e.pointerId); }catch(_){}
+    onDragStart(e.clientX, e.clientY);
+  },{capture:false, passive:false});
+
+  noteEl.addEventListener('pointermove',function(e){
+    if(startX === undefined) return;
+    e.stopPropagation(); e.stopImmediatePropagation(); e.preventDefault();
+    onDragMove(e.clientX, e.clientY);
+  },{capture:false, passive:false});
+
+  noteEl.addEventListener('pointerup',function(e){
+    if(startX === undefined) return;
+    e.stopPropagation(); e.stopImmediatePropagation();
+    onDragEnd(false);
+  },{capture:false, passive:false});
+
+  noteEl.addEventListener('pointercancel',function(e){
+    if(startX === undefined) return;
+    e.stopPropagation(); e.stopImmediatePropagation();
+    onDragEnd(true);
+  },{capture:false, passive:false});
+}
+
+/* ═══ ADD NOTE ═══ */
+function addNote(){
+  var pos = randPos();
+  var n = {id:genId(), colorKey:randColorKey(), text:'', x:pos.x, y:pos.y, rot:randRot()};
+  appNotes.push(n);
+  saveNotes();
+  document.getElementById('emptyHint').style.display = 'none';
+  var el = buildNoteEl(n, true);
+  document.getElementById('canvas').appendChild(el);
+  setTimeout(function(){
+    var ta = el.querySelector('.noteText');
+    if(ta){ ta.focus(); el.classList.add('focused'); }
+  }, 260);
+  iappyx.vibration.tick();
+}
+
+/* ═══ DELETE NOTE (actual removal — called after confirm) ═══ */
+function doDeleteNote(id){
+  var el = document.getElementById('note_'+id);
+  if(el){
+    el.classList.add('leaving');
+    setTimeout(function(){ if(el.parentNode) el.parentNode.removeChild(el); }, 280);
+  }
+  appNotes = appNotes.filter(function(n){ return n.id!==id; });
+  saveNotes();
+  document.getElementById('emptyHint').style.display = appNotes.length===0 ? 'block' : 'none';
+}
+
+/* ═══ ARCHIVE NOTE ═══ */
+function archiveNote(id){
+  var n = findNote(id);
+  if(!n) return;
+  /* Archive doesn't need a confirm — it's reversible */
+  var el = document.getElementById('note_'+id);
+  if(el){
+    el.classList.add('leaving');
+    setTimeout(function(){ if(el.parentNode) el.parentNode.removeChild(el); }, 280);
+  }
+  appNotes = appNotes.filter(function(x){ return x.id!==id; });
+  appArchived.unshift({id:n.id, colorKey:n.colorKey, text:n.text, archivedAt:Date.now()});
+  saveNotes();
+  document.getElementById('emptyHint').style.display = appNotes.length===0 ? 'block' : 'none';
+  updateArchivePile();
+  iappyx.vibration.click();
+}
+
+/* ═══ RESTORE NOTE ═══ */
+function restoreNote(id){
+  var idx = -1;
+  for(var i=0;i<appArchived.length;i++) if(appArchived[i].id===id){ idx=i; break; }
+  if(idx<0) return;
+  var a = appArchived.splice(idx,1)[0];
+  var pos = randPos();
+  var n = {id:a.id, colorKey:a.colorKey, text:a.text, x:pos.x, y:pos.y, rot:randRot()};
+  appNotes.push(n);
+  saveNotes();
+  document.getElementById('emptyHint').style.display = 'none';
+  var el = buildNoteEl(n, true);
+  document.getElementById('canvas').appendChild(el);
+  updateArchivePile();
+  renderArchiveGrid();
+  iappyx.vibration.click();
+}
+
+/* ═══ ARCHIVE PILE ═══ */
+function updateArchivePile(){
+  var count = appArchived.length;
+  var pile  = document.getElementById('archivePile');
+  var badge = document.getElementById('archiveBadge');
+
+  badge.textContent = count > 99 ? '99+' : count;
+  pile.style.display = count > 0 ? 'block' : 'none';
+
+  badge.classList.remove('bump');
+  void badge.offsetWidth;
+  badge.classList.add('bump');
+  setTimeout(function(){ badge.classList.remove('bump'); }, 300);
+
+  var cards = ['pileCard3','pileCard2','pileCard1'];
+  var rotations = [-9, 5, -2];
+  var offsets   = ['-50%', '-50%', '-50%'];
+  for(var i=0;i<3;i++){
+    var el = document.getElementById(cards[i]);
+    if(i < Math.min(3, count)){
+      var col = COLORS[appArchived[Math.min(i, appArchived.length-1)].colorKey] || COLORS.amber;
+      el.style.display = 'block';
+      el.style.background = col.grad;
+      el.style.transform = 'translateX('+offsets[i]+') rotate('+rotations[i]+'deg)';
+    } else {
+      el.style.display = 'none';
+    }
+  }
+}
+
+/* ═══ ARCHIVE DRAWER ═══ */
+function openArchive(){
+  if(appArchived.length===0) return;
+  var overlay = document.getElementById('archiveOverlay');
+  var drawer  = document.getElementById('archiveDrawer');
+  renderArchiveGrid();
+  overlay.style.display = 'flex';
+  requestAnimationFrame(function(){
+    overlay.classList.add('visible');
+    drawer.classList.add('open');
+  });
+  iappyx.vibration.click();
+}
+
+function closeArchive(){
+  var overlay = document.getElementById('archiveOverlay');
+  var drawer  = document.getElementById('archiveDrawer');
+  overlay.classList.remove('visible');
+  drawer.classList.remove('open');
+  setTimeout(function(){ overlay.style.display='none'; }, 380);
+}
+
+function closeArchiveOnOverlay(e){
+  if(e.target === document.getElementById('archiveOverlay')) closeArchive();
+}
+
+function renderArchiveGrid(){
+  var grid = document.getElementById('archiveGrid');
+  if(appArchived.length === 0){
+    grid.innerHTML = '<div style="grid-column:span 2;text-align:center;padding:24px 0;'+
+      'color:rgba(255,255,255,0.45);font-size:12px;font-family:Nunito,sans-serif;font-weight:600;">'+
+      'Nothing archived yet</div>';
+    return;
+  }
+  var html = '';
+  appArchived.forEach(function(a){
+    var col = COLORS[a.colorKey] || COLORS.amber;
+    html += '<div class="archiveCard" style="background:'+col.grad+';">'+
+      '<div class="archiveCardText">'+escHtml(a.text||'(empty)')+'</div>'+
+      '<button class="restoreBtn" onclick="restoreNote(\''+a.id+'\')">↩ Restore</button>'+
+    '</div>';
+  });
+  grid.innerHTML = html;
+}
+
+/* ═══ UTILS ═══ */
+function findNote(id){
+  for(var i=0;i<appNotes.length;i++) if(appNotes[i].id===id) return appNotes[i];
+  return null;
+}
+
+window.addEventListener('resize',function(){
+  CANVAS_W = window.innerWidth;
+  CANVAS_H = window.innerHeight;
+});
+</script>
+</body></html>
