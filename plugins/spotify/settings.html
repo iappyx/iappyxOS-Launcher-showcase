@@ -1,0 +1,187 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Configure Spotify</title>
+  <style>
+    :root { --bg:#0d0d12; --text:#ECECEC; --hint:#8E8E97; --line:#2a2a36;
+            --accent:#1DB954; --error:#FF5252; --ok:#66BB6A; }
+    *{box-sizing:border-box} html,body{margin:0;padding:0;height:100%;
+      background:var(--bg);color:var(--text);
+      font:15px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text",Roboto,sans-serif}
+    .wrap{padding:20px;padding-top:max(20px,env(safe-area-inset-top));
+      padding-bottom:max(20px,env(safe-area-inset-bottom));max-width:640px;margin:0 auto}
+    h1{font-size:22px;margin:0 0 4px}
+    .sub{color:var(--hint);font-size:13px;margin-bottom:18px}
+    details{background:#0a0a10;border:1px solid var(--line);border-radius:10px;
+      padding:12px 14px;margin-bottom:18px}
+    details summary{cursor:pointer;font-size:13px;color:var(--accent);
+      list-style:none;outline:none}
+    details summary::-webkit-details-marker{display:none}
+    details[open] summary{margin-bottom:8px}
+    details ol{margin:0;padding-left:18px;font-size:13px;line-height:1.55;color:var(--text)}
+    details li{margin-bottom:6px}
+    details code{background:#000;border:1px solid var(--line);padding:1px 5px;
+      border-radius:4px;font-size:11px;word-break:break-all}
+    details a{color:var(--accent)}
+    .field{margin-bottom:16px}
+    label{display:block;color:var(--hint);font-size:12px;text-transform:uppercase;
+      letter-spacing:.07em;margin-bottom:6px}
+    input[type=text],input[type=password],textarea{width:100%;background:#0a0a10;
+      color:var(--text);border:1px solid var(--line);border-radius:10px;
+      padding:12px 14px;font:inherit;resize:vertical}
+    input:focus,textarea:focus{outline:2px solid var(--accent);border-color:transparent}
+    .row{display:flex;gap:10px;margin-top:18px}
+    button{flex:1;background:transparent;color:var(--text);border:1px solid var(--line);
+      border-radius:10px;padding:12px;font:inherit;cursor:pointer}
+    button.primary{background:var(--accent);color:#001220;border-color:var(--accent);font-weight:600}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .status{margin-top:14px;padding:10px 12px;border-radius:8px;font-size:13px;display:none}
+    .status.ok{background:rgba(102,187,106,.15);color:var(--ok);
+      border:1px solid rgba(102,187,106,.4);display:block}
+    .status.err{background:rgba(255,82,82,.10);color:var(--error);
+      border:1px solid rgba(255,82,82,.4);display:block}
+    .hint{color:var(--hint);font-size:12px;line-height:1.5;margin-top:6px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Spotify</h1>
+  <p class="sub">Surface now-playing, queue, recently played, and transport controls in widgets and wallpapers. Spotify uses OAuth, so the one-time setup is a few steps — after that it auto-refreshes itself.</p>
+
+  <details>
+    <summary>How to get a Client ID + Refresh Token (one-time, ~3 min)</summary>
+    <ol>
+      <li>Open <a href="https://developer.spotify.com/dashboard" target="_blank">developer.spotify.com/dashboard</a> on a desktop browser and create an app. Any name, any description.</li>
+      <li>Set the <strong>Redirect URI</strong> to <code>http://127.0.0.1:8080/callback</code> (or any URL you control — you'll capture the redirect manually).</li>
+      <li>Copy your <strong>Client ID</strong>.</li>
+      <li>Open this URL in a browser (replace <code>YOUR_CLIENT_ID</code> and the redirect_uri to match step 2):
+        <br><code>https://accounts.spotify.com/authorize?response_type=code&client_id=YOUR_CLIENT_ID&scope=user-read-playback-state%20user-modify-playback-state%20user-read-currently-playing%20user-read-recently-played&redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Fcallback</code>
+      </li>
+      <li>Approve the app. Your browser is redirected to <code>http://127.0.0.1:8080/callback?code=AQ…long-code…</code>. Copy the <strong>code</strong> value.</li>
+      <li>From a terminal, exchange the code for a refresh token:
+        <br><code>curl -X POST https://accounts.spotify.com/api/token -d grant_type=authorization_code -d code=THE_CODE -d redirect_uri=http%3A%2F%2F127.0.0.1%3A8080%2Fcallback -d client_id=YOUR_CLIENT_ID</code>
+      </li>
+      <li>The response includes a <code>refresh_token</code>. Paste it below.</li>
+    </ol>
+  </details>
+
+  <div class="field">
+    <label for="client-id">Client ID</label>
+    <input id="client-id" type="text" autocomplete="off" autocapitalize="off" autocorrect="off"
+           placeholder="32-character hex string" />
+    <p class="hint">From your app at developer.spotify.com.</p>
+  </div>
+
+  <div class="field">
+    <label for="refresh-token">Refresh token</label>
+    <textarea id="refresh-token" rows="3" autocomplete="off" autocapitalize="off" autocorrect="off"
+              placeholder="paste the long refresh_token here"></textarea>
+    <p class="hint">From step 7. The plugin trades this for short-lived access tokens on demand — no client secret needed.</p>
+  </div>
+
+  <div class="row">
+    <button id="test-btn">Test connection</button>
+    <button id="save-btn" class="primary">Save</button>
+  </div>
+
+  <div id="status" class="status"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var idField  = document.getElementById('client-id');
+  var rtField  = document.getElementById('refresh-token');
+  var testBtn  = document.getElementById('test-btn');
+  var saveBtn  = document.getElementById('save-btn');
+  var status   = document.getElementById('status');
+
+  idField.value = iappyx.secureStore.get('clientId') || '';
+  rtField.value = iappyx.secureStore.get('refreshToken') || '';
+
+  function setStatus(kind, message) {
+    status.className = 'status ' + kind;
+    status.textContent = message;
+  }
+  function readForm() {
+    return {
+      clientId: idField.value.trim(),
+      refreshToken: rtField.value.trim(),
+    };
+  }
+
+  testBtn.addEventListener('click', async function () {
+    var f = readForm();
+    if (!f.clientId || !f.refreshToken) {
+      setStatus('err', 'Fill in both fields first.');
+      return;
+    }
+    testBtn.disabled = true; saveBtn.disabled = true;
+    setStatus('ok', 'Refreshing access token…');
+    try {
+      // Mint a fresh access token. If this works, the credentials are
+      // good. We don't persist the token here — settings.html doesn't
+      // share iappyx.storage with the runtime plugin (different
+      // SharedPreferences files don't matter; what matters is which
+      // process owns the file). The plugin runtime will mint its own
+      // when invoked.
+      var body = 'grant_type=refresh_token'
+        + '&refresh_token=' + encodeURIComponent(f.refreshToken)
+        + '&client_id=' + encodeURIComponent(f.clientId);
+      var r = await iappyx.httpClient.fetch({
+        url: 'https://accounts.spotify.com/api/token',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded',
+                   'Accept': 'application/json' },
+        body: body,
+      });
+      if (r.status !== 200) {
+        var parsed = {};
+        try { parsed = JSON.parse(r.body) || {}; } catch (_) {}
+        setStatus('err', 'Refresh failed: ' + (parsed.error_description || parsed.error || ('HTTP ' + r.status)));
+        return;
+      }
+      var token = JSON.parse(r.body).access_token;
+      if (!token) {
+        setStatus('err', 'No access token in reply.');
+        return;
+      }
+      // Probe /me to confirm the token works and surface the account
+      // name so the user knows they connected the right Spotify.
+      var me = await iappyx.httpClient.fetch({
+        url: 'https://api.spotify.com/v1/me',
+        headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
+      });
+      if (me.status !== 200) {
+        setStatus('err', 'Access token worked but /me returned ' + me.status + '.');
+        return;
+      }
+      var info = {};
+      try { info = JSON.parse(me.body) || {}; } catch (_) {}
+      var name = info.display_name || info.id || 'Spotify user';
+      var premium = info.product === 'premium' ? ' · Premium' : '';
+      setStatus('ok', 'Connected as ' + name + premium + '.');
+    } catch (e) {
+      setStatus('err', 'Network error: ' + ((e && e.message) || e));
+    } finally {
+      testBtn.disabled = false; saveBtn.disabled = false;
+    }
+  });
+
+  saveBtn.addEventListener('click', function () {
+    var f = readForm();
+    iappyx.secureStore.set('clientId', f.clientId);
+    iappyx.secureStore.set('refreshToken', f.refreshToken);
+    setStatus('ok', 'Saved.');
+    setTimeout(function () { iappyx.plugin.close(); }, 400);
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') saveBtn.click();
+  });
+})();
+</script>
+</body>
+</html>

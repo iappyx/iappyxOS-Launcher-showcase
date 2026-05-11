@@ -1,0 +1,274 @@
+<!doctype html>
+<!--
+  Paperless-ngx plugin — runtime. Hidden WebView; never user-visible.
+
+  Surface (all return Promises):
+    iappyx.plugin('paperless-ngx').isConfigured()
+    iappyx.plugin('paperless-ngx').ping()
+    iappyx.plugin('paperless-ngx').recent({count})
+    iappyx.plugin('paperless-ngx').search({query, count})
+    iappyx.plugin('paperless-ngx').byTag({tagId, count})
+    iappyx.plugin('paperless-ngx').tags()
+    iappyx.plugin('paperless-ngx').correspondents()
+    iappyx.plugin('paperless-ngx').document({id})
+    iappyx.plugin('paperless-ngx').thumbnail({id})
+    iappyx.plugin('paperless-ngx').download({id})
+
+  Credentials (server URL + API token) live in iappyx.secureStore.
+  Paperless-ngx uses `Authorization: Token <key>` (not "Bearer").
+  Settings page (settings.html) writes them; runtime re-reads on every
+  call so credential updates take effect immediately.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Paperless-ngx plugin</title>
+</head>
+<body>
+<script>
+(function () {
+  'use strict';
+
+  function creds() {
+    return {
+      serverUrl: (iappyx.secureStore.get('serverUrl') || '').replace(/\/+$/, ''),
+      token: iappyx.secureStore.get('token') || '',
+    };
+  }
+  function ok(extra) { return Object.assign({ ok: true }, extra || {}); }
+  function err(message) { return { ok: false, error: message }; }
+  function tokenHeader(token, extra) {
+    // Paperless uses "Token <key>" exactly — not Bearer, not "Token: ".
+    var h = { 'Authorization': 'Token ' + token, 'Accept': 'application/json' };
+    if (extra) Object.keys(extra).forEach(function (k) { h[k] = extra[k]; });
+    return h;
+  }
+
+  function authedGet(path) {
+    var c = creds();
+    if (!c.serverUrl || !c.token) return Promise.resolve({ status: 0, body: null, error: 'not configured' });
+    return iappyx.httpClient.fetch({
+      url: c.serverUrl + path,
+      method: 'GET',
+      headers: tokenHeader(c.token),
+    }).then(function (r) {
+      var parsed = null;
+      try { parsed = r.body ? JSON.parse(r.body) : null; } catch (_) { /* binary */ }
+      return { status: r.status, body: parsed, raw: r.body, headers: r.headers || {} };
+    });
+  }
+
+  function authedBinary(path, fallbackMime) {
+    var c = creds();
+    if (!c.serverUrl || !c.token) return Promise.resolve(null);
+    return iappyx.httpClient.fetch({
+      url: c.serverUrl + path,
+      method: 'GET',
+      headers: tokenHeader(c.token),
+      responseType: 'base64',
+    }).then(function (r) {
+      if (r.status < 200 || r.status >= 300 || !r.body) return null;
+      var ct = r.headers && (r.headers['content-type'] || r.headers['Content-Type']);
+      var mime = ct ? String(ct).split(';')[0] : fallbackMime;
+      return 'data:' + mime + ';base64,' + r.body;
+    });
+  }
+
+  /** Normalise a Paperless document. Strip the heavy full-text `content`
+   *  from list responses — widgets that need the OCR text should
+   *  fetch the single doc via document({id}). */
+  function asDoc(raw, includeContent) {
+    if (!raw) return null;
+    var out = {
+      id: raw.id,
+      title: raw.title || '',
+      created: raw.created || raw.created_date || null,
+      addedAt: raw.added || null,
+      modifiedAt: raw.modified || null,
+      correspondentId: raw.correspondent || null,
+      documentTypeId: raw.document_type || null,
+      tagIds: Array.isArray(raw.tags) ? raw.tags : [],
+      pageCount: raw.page_count || null,
+      fileName: raw.original_file_name || raw.archive_file_name || '',
+    };
+    if (includeContent && raw.content) out.content = raw.content;
+    return out;
+  }
+
+  iappyx.plugin.export({
+    isConfigured: function () {
+      var c = creds();
+      return ok({ configured: !!(c.serverUrl && c.token) });
+    },
+
+    ping: function () {
+      // Paperless 2.x exposes `/api/status/` with version + DB ok.
+      // Older versions only have `/api/` — fall back if status 404.
+      return authedGet('/api/status/').then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 401) return err('invalid token');
+        if (r.status === 404) {
+          return authedGet('/api/').then(function (r2) {
+            if (r2.status >= 200 && r2.status < 300) return ok({ version: 'unknown' });
+            return err('server error ' + r2.status);
+          });
+        }
+        if (r.status >= 400) return err('server error ' + r.status);
+        var b = r.body || {};
+        return ok({
+          version: b.pngx_version || b.version || 'unknown',
+          host: (b.server || {}).hostname || '',
+        });
+      });
+    },
+
+    recent: function (args) {
+      var count = Math.max(1, Math.min(100, (args && args.count) || 20));
+      return authedGet('/api/documents/?ordering=-created&truncate_content=true&page_size=' + count)
+        .then(function (r) {
+          if (r.error) return err(r.error);
+          if (r.status === 401) return err('invalid token');
+          if (r.status >= 400) return err('server error ' + r.status);
+          var b = r.body || {};
+          var items = Array.isArray(b.results) ? b.results : [];
+          return ok({
+            documents: items.map(function (d) { return asDoc(d, false); }).filter(Boolean),
+            total: b.count || 0,
+          });
+        });
+    },
+
+    search: function (args) {
+      var query = (args && args.query) || '';
+      var count = Math.max(1, Math.min(100, (args && args.count) || 20));
+      if (!query) return Promise.resolve(err('query required'));
+      // Paperless full-text search uses `query` (across content + title)
+      // for the modern UI, or `title__icontains` for title-only. Use
+      // `query` for richer matches.
+      return authedGet('/api/documents/?query=' + encodeURIComponent(query) +
+                       '&truncate_content=true&page_size=' + count)
+        .then(function (r) {
+          if (r.error) return err(r.error);
+          if (r.status === 401) return err('invalid token');
+          if (r.status >= 400) return err('server error ' + r.status);
+          var b = r.body || {};
+          var items = Array.isArray(b.results) ? b.results : [];
+          return ok({
+            documents: items.map(function (d) { return asDoc(d, false); }).filter(Boolean),
+            total: b.count || 0,
+          });
+        });
+    },
+
+    byTag: function (args) {
+      var id = args && args.tagId;
+      if (id == null) return Promise.resolve(err('tagId required'));
+      var count = Math.max(1, Math.min(100, (args && args.count) || 20));
+      return authedGet('/api/documents/?tags__id__in=' + encodeURIComponent(id) +
+                       '&ordering=-created&truncate_content=true&page_size=' + count)
+        .then(function (r) {
+          if (r.error) return err(r.error);
+          if (r.status === 401) return err('invalid token');
+          if (r.status >= 400) return err('server error ' + r.status);
+          var b = r.body || {};
+          var items = Array.isArray(b.results) ? b.results : [];
+          return ok({
+            documents: items.map(function (d) { return asDoc(d, false); }).filter(Boolean),
+            total: b.count || 0,
+          });
+        });
+    },
+
+    tags: function () {
+      // Paginate through all tags. Paperless default page_size is 25;
+      // most users have <100 tags so two pages covers it. We loop just
+      // in case.
+      function fetchPage(url, acc) {
+        return authedGet(url).then(function (r) {
+          if (r.error) return err(r.error);
+          if (r.status === 401) return err('invalid token');
+          if (r.status >= 400) return err('server error ' + r.status);
+          var b = r.body || {};
+          var items = Array.isArray(b.results) ? b.results : [];
+          items.forEach(function (t) {
+            acc.push({
+              id: t.id,
+              name: t.name || '',
+              color: t.colour || t.color || null,
+              isInboxTag: !!t.is_inbox_tag,
+              documentCount: t.document_count || 0,
+            });
+          });
+          if (b.next) {
+            // Paperless returns absolute URLs in `next`; strip the
+            // server prefix so authedGet appends to creds().serverUrl.
+            var nextPath = String(b.next).replace(/^https?:\/\/[^/]+/, '');
+            return fetchPage(nextPath, acc);
+          }
+          return ok({ tags: acc });
+        });
+      }
+      return fetchPage('/api/tags/?page_size=100', []);
+    },
+
+    correspondents: function () {
+      function fetchPage(url, acc) {
+        return authedGet(url).then(function (r) {
+          if (r.error) return err(r.error);
+          if (r.status === 401) return err('invalid token');
+          if (r.status >= 400) return err('server error ' + r.status);
+          var b = r.body || {};
+          var items = Array.isArray(b.results) ? b.results : [];
+          items.forEach(function (c) {
+            acc.push({
+              id: c.id, name: c.name || '', documentCount: c.document_count || 0,
+            });
+          });
+          if (b.next) {
+            var nextPath = String(b.next).replace(/^https?:\/\/[^/]+/, '');
+            return fetchPage(nextPath, acc);
+          }
+          return ok({ correspondents: acc });
+        });
+      }
+      return fetchPage('/api/correspondents/?page_size=100', []);
+    },
+
+    document: function (args) {
+      var id = args && args.id;
+      if (id == null) return Promise.resolve(err('id required'));
+      return authedGet('/api/documents/' + encodeURIComponent(id) + '/').then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 401) return err('invalid token');
+        if (r.status === 404) return err('document not found');
+        if (r.status >= 400) return err('server error ' + r.status);
+        return ok({ document: asDoc(r.body, true) });
+      });
+    },
+
+    thumbnail: function (args) {
+      var id = args && args.id;
+      if (id == null) return Promise.resolve(err('id required'));
+      return authedBinary('/api/documents/' + encodeURIComponent(id) + '/thumb/', 'image/webp')
+        .then(function (url) {
+          if (!url) return err('thumbnail unavailable');
+          return ok({ dataUrl: url });
+        });
+    },
+
+    download: function (args) {
+      var id = args && args.id;
+      if (id == null) return Promise.resolve(err('id required'));
+      return authedBinary('/api/documents/' + encodeURIComponent(id) + '/download/', 'application/pdf')
+        .then(function (url) {
+          if (!url) return err('download unavailable');
+          return ok({ dataUrl: url });
+        });
+    },
+  });
+
+  iappyx.plugin.log('paperless-ngx plugin loaded');
+})();
+</script>
+</body>
+</html>

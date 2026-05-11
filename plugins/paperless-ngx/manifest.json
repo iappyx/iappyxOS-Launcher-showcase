@@ -1,0 +1,24 @@
+{
+  "id": "paperless-ngx",
+  "name": "Paperless-ngx",
+  "description": "Recent scans, full-text search, tag/correspondent filtering for a self-hosted Paperless-ngx instance. Credentials stay in encrypted device storage.",
+  "version": "1.0.0",
+  "author": "iappyx",
+  "minLauncher": 1,
+  "background": false,
+  "capabilities": ["http", "secureStore", "scheduler"],
+  "settingsUi": "settings.html",
+  "exposes": [
+    { "name": "isConfigured", "args": {} },
+    { "name": "ping",         "args": {} },
+    { "name": "recent",       "args": { "count": "int" } },
+    { "name": "search",       "args": { "query": "string", "count": "int" } },
+    { "name": "byTag",        "args": { "tagId": "int", "count": "int" } },
+    { "name": "tags",         "args": {} },
+    { "name": "correspondents","args": {} },
+    { "name": "document",     "args": { "id": "int" } },
+    { "name": "thumbnail",    "args": { "id": "int" } },
+    { "name": "download",     "args": { "id": "int" } }
+  ],
+  "aiPrompt": "iappyx.plugin('paperless-ngx') talks to a self-hosted Paperless-ngx instance (user configures URL + API token via Settings → Plugins → Paperless-ngx → Configure). All methods return Promises with {ok, ...} or {ok:false, error}. Surface: isConfigured() → {ok, configured}. ping() → {ok, version}. recent({count:20}) → {ok, documents:[{id, title, created, addedAt, correspondentId, documentTypeId, tagIds, pageCount, fileName}]} newest first. search({query, count}) → {ok, documents:[...]} full-text search across content + title + correspondent. byTag({tagId, count}) → {ok, documents:[...]} filtered by a single tag id. tags() → {ok, tags:[{id, name, color, isInboxTag}]} — call this first to discover the inbox tag id, then byTag({tagId:<inboxId>}) shows unprocessed scans. correspondents() → {ok, correspondents:[{id, name, documentCount}]}. document({id}) → {ok, document:{...all fields including full OCR content}}. thumbnail({id}) → {ok, dataUrl:'data:image/webp;base64,...'} small preview image. download({id}) → {ok, dataUrl:'data:application/pdf;base64,...'} full file. Best for widgets: 'inbox count' (byTag with isInboxTag), 'last 5 receipts' (byTag with a 'receipt' tag), 'tap to copy invoice number' (regex on document.content), 'monthly expense total' (sum amounts from tagged invoices)."
+}

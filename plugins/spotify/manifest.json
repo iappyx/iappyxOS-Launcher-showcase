@@ -1,0 +1,27 @@
+{
+  "id": "spotify",
+  "name": "Spotify",
+  "description": "Now playing, queue, recently played, and transport controls for Spotify. Client ID + refresh token from a one-time OAuth flow are stored encrypted; widgets and wallpapers call iappyx.plugin('spotify').* without seeing them.",
+  "version": "1.0.0",
+  "author": "iappyx",
+  "minLauncher": 1,
+  "background": false,
+  "capabilities": ["http", "secureStore", "storage"],
+  "settingsUi": "settings.html",
+  "exposes": [
+    { "name": "isConfigured",   "args": {} },
+    { "name": "nowPlaying",     "args": {} },
+    { "name": "playbackState",  "args": {} },
+    { "name": "queue",          "args": {} },
+    { "name": "recentlyPlayed", "args": { "count": "int" } },
+    { "name": "devices",        "args": {} },
+    { "name": "play",           "args": { "uri": "string", "deviceId": "string" } },
+    { "name": "pause",          "args": {} },
+    { "name": "resume",         "args": {} },
+    { "name": "next",           "args": {} },
+    { "name": "previous",       "args": {} },
+    { "name": "seek",           "args": { "positionMs": "int" } },
+    { "name": "setVolume",      "args": { "percent": "int", "deviceId": "string" } }
+  ],
+  "aiPrompt": "iappyx.plugin('spotify') wraps the Spotify Web API. User configures Client ID + refresh token via Settings → Plugins → Spotify → Configure (one-time OAuth dance). Plugin handles access-token refresh automatically. All methods return Promises; check {ok}. nowPlaying() → {ok, isPlaying:bool, track:{id, name, artists:[{name}], album:{name, artUrl}, durationMs, progressMs, isLocal}, device:{id, name, type, volumePercent}} — returns {ok:true, isPlaying:false, track:null} when nothing is playing. playbackState() → richer version of nowPlaying including shuffle/repeat state. queue() → {ok, current, queue:[track,…]}. recentlyPlayed({count:20}) → {ok, items:[{track, playedAt}]}. devices() → {ok, devices:[{id, name, type, isActive, volumePercent}]} including all the user's connected Spotify Connect endpoints. Transport controls (Premium required): play({uri, deviceId}) plays a Spotify URI (e.g. 'spotify:track:...', 'spotify:playlist:...', 'spotify:album:...'); pause(), resume(), next(), previous(), seek({positionMs}), setVolume({percent, deviceId}). All replies follow {ok:true} or {ok:false, error:'…'}. Best widgets: 'now playing' card with album art (track.album.artUrl is a CDN URL — drop into <img>), 'tap to skip', 'queue preview', 'top device picker'. Best wallpapers: extract the dominant colour from artUrl and pulse the wallpaper with it, particle visualiser that reacts to progressMs/durationMs."
+}

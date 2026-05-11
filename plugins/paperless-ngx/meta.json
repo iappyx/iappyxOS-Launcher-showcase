@@ -1,0 +1,6 @@
+{
+  "title": "Paperless-ngx",
+  "description": "Recent scans, full-text search, tag/correspondent filtering for a self-hosted Paperless-ngx instance. Surface via iappyx.plugin('paperless-ngx').*.",
+  "author": "iappyx",
+  "added": "2026-05-12"
+}

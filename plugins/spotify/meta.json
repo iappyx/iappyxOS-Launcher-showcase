@@ -1,0 +1,6 @@
+{
+  "title": "Spotify",
+  "description": "Now playing, queue, recently played, and transport controls for Spotify. Surface via iappyx.plugin('spotify').*. One-time OAuth setup; auto-refreshes thereafter.",
+  "author": "iappyx",
+  "added": "2026-05-12"
+}

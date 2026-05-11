@@ -542,6 +542,20 @@
       "description": "Photos from a self-hosted Immich server. Widgets and wallpapers fetch recent, random, or album photos via iappyx.plugin('immich').* — credentials stay in encrypted device storage.",
       "author": "iappyx",
       "added": "2026-05-11"
+    },
+    {
+      "slug": "paperless-ngx",
+      "title": "Paperless-ngx",
+      "description": "Recent scans, full-text search, tag/correspondent filtering for a self-hosted Paperless-ngx instance. Surface via iappyx.plugin('paperless-ngx').*.",
+      "author": "iappyx",
+      "added": "2026-05-12"
+    },
+    {
+      "slug": "spotify",
+      "title": "Spotify",
+      "description": "Now playing, queue, recently played, and transport controls for Spotify. Surface via iappyx.plugin('spotify').*. One-time OAuth setup; auto-refreshes thereafter.",
+      "author": "iappyx",
+      "added": "2026-05-12"
     }
   ]
 }

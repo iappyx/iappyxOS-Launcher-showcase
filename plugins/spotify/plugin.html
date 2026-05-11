@@ -1,0 +1,334 @@
+<!doctype html>
+<!--
+  Spotify plugin — runtime.
+
+  OAuth model: the user does a one-time PKCE / Authorization-Code flow
+  in a browser (see settings.html for the cookbook) and pastes the
+  resulting `client_id` + `refresh_token` into the plugin's settings.
+  The plugin uses the refresh token to mint short-lived access tokens
+  on demand. Refresh tokens from PKCE flows DON'T require the client
+  secret to rotate — public-client friendly.
+
+  Storage:
+    secureStore:  clientId, refreshToken
+    storage:      accessToken, accessTokenExpiresAt (the latter is just
+                  a cache; we'll refresh whenever we drift past it)
+
+  Surface — see manifest.aiPrompt for the full list.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Spotify plugin</title>
+</head>
+<body>
+<script>
+(function () {
+  'use strict';
+
+  var API_BASE = 'https://api.spotify.com/v1';
+  var TOKEN_URL = 'https://accounts.spotify.com/api/token';
+  // Refresh ~60s before declared expiry — accounts for clock skew and
+  // network round-trip on the very call that triggers refresh.
+  var EXPIRY_BUFFER_MS = 60 * 1000;
+
+  function ok(extra)    { return Object.assign({ ok: true }, extra || {}); }
+  function err(message) { return { ok: false, error: message }; }
+
+  function creds() {
+    return {
+      clientId: iappyx.secureStore.get('clientId') || '',
+      refreshToken: iappyx.secureStore.get('refreshToken') || '',
+    };
+  }
+
+  /** Cached access token, exchanged from the refresh token on demand.
+   *  We persist in iappyx.storage (not secureStore) — access tokens
+   *  expire in ~1 hour and are easy to re-mint, so the extra
+   *  protection isn't worth the cross-process pain. */
+  function readCachedToken() {
+    try {
+      var raw = iappyx.storage.load('access');
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      if (!parsed || !parsed.token || !parsed.expiresAt) return null;
+      if (Date.now() + EXPIRY_BUFFER_MS >= parsed.expiresAt) return null;
+      return parsed.token;
+    } catch (_) { return null; }
+  }
+  function writeCachedToken(token, expiresInSec) {
+    try {
+      iappyx.storage.save('access', JSON.stringify({
+        token: token,
+        expiresAt: Date.now() + (expiresInSec * 1000),
+      }));
+    } catch (_) { /* non-fatal */ }
+  }
+  function clearCachedToken() {
+    try { iappyx.storage.remove('access'); } catch (_) {}
+  }
+
+  /** Exchange refresh_token for a fresh access_token. Spotify accepts
+   *  these params as x-www-form-urlencoded (not JSON). On a 400
+   *  invalid_grant the refresh token has been revoked — surface the
+   *  reason so the user knows to re-authorise. */
+  function refreshAccessToken() {
+    var c = creds();
+    if (!c.clientId || !c.refreshToken) {
+      return Promise.resolve({ token: null, error: 'not configured' });
+    }
+    var body = 'grant_type=refresh_token'
+      + '&refresh_token=' + encodeURIComponent(c.refreshToken)
+      + '&client_id=' + encodeURIComponent(c.clientId);
+    return iappyx.httpClient.fetch({
+      url: TOKEN_URL,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded',
+                 'Accept': 'application/json' },
+      body: body,
+    }).then(function (r) {
+      if (r.status < 200 || r.status >= 300) {
+        var parsed = {};
+        try { parsed = JSON.parse(r.body) || {}; } catch (_) {}
+        var why = parsed.error_description || parsed.error
+          || ('refresh failed ' + r.status);
+        if (parsed.error === 'invalid_grant') {
+          // Refresh token revoked — drop our cached access too.
+          clearCachedToken();
+        }
+        return { token: null, error: why };
+      }
+      var parsed = {};
+      try { parsed = JSON.parse(r.body) || {}; } catch (_) {}
+      if (!parsed.access_token) return { token: null, error: 'no access_token in reply' };
+      writeCachedToken(parsed.access_token, parsed.expires_in || 3600);
+      // Spotify MAY return a new refresh token (rotated). Save it if so.
+      if (parsed.refresh_token && parsed.refresh_token !== c.refreshToken) {
+        iappyx.secureStore.set('refreshToken', parsed.refresh_token);
+      }
+      return { token: parsed.access_token, error: null };
+    });
+  }
+
+  function getAccessToken() {
+    var cached = readCachedToken();
+    if (cached) return Promise.resolve({ token: cached, error: null });
+    return refreshAccessToken();
+  }
+
+  /** GET helper. Spotify returns 204 No Content for several endpoints
+   *  (currently-playing when paused/empty); treat that as a clean
+   *  "nothing playing" rather than an error. */
+  function authedGet(path) {
+    return getAccessToken().then(function (a) {
+      if (a.error) return { status: 0, body: null, error: a.error };
+      return iappyx.httpClient.fetch({
+        url: API_BASE + path,
+        method: 'GET',
+        headers: { 'Authorization': 'Bearer ' + a.token, 'Accept': 'application/json' },
+      }).then(function (r) {
+        var parsed = null;
+        try { parsed = r.body ? JSON.parse(r.body) : null; } catch (_) {}
+        return { status: r.status, body: parsed, raw: r.body };
+      });
+    });
+  }
+
+  /** PUT / POST helper for player controls. Many return 204 No Content
+   *  on success — we accept 200-299 as success uniformly. */
+  function authedMutate(method, path, jsonBody) {
+    return getAccessToken().then(function (a) {
+      if (a.error) return { status: 0, error: a.error };
+      var opts = {
+        url: API_BASE + path,
+        method: method,
+        headers: { 'Authorization': 'Bearer ' + a.token, 'Accept': 'application/json' },
+      };
+      if (jsonBody !== undefined && jsonBody !== null) {
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(jsonBody);
+      }
+      return iappyx.httpClient.fetch(opts).then(function (r) {
+        return { status: r.status, raw: r.body };
+      });
+    });
+  }
+
+  function asTrack(raw) {
+    if (!raw) return null;
+    // Spotify returns `episode` items for podcasts — they have a
+    // different shape (no album, no artists). Normalise into a
+    // common reduced form so widgets can render uniformly.
+    if (raw.type === 'episode') {
+      var images = (raw.show && raw.show.images) || raw.images || [];
+      return {
+        id: raw.id, name: raw.name || '',
+        artists: [{ name: (raw.show && raw.show.name) || '' }],
+        album: { name: (raw.show && raw.show.name) || '', artUrl: images[0] && images[0].url || null },
+        durationMs: raw.duration_ms || 0, isLocal: false, isEpisode: true,
+        url: raw.external_urls && raw.external_urls.spotify || null,
+      };
+    }
+    var images = raw.album && raw.album.images || [];
+    return {
+      id: raw.id, name: raw.name || '',
+      artists: (raw.artists || []).map(function (a) { return { name: a.name || '' }; }),
+      album: {
+        name: (raw.album && raw.album.name) || '',
+        // images[0] is the largest (~640px), images[2] is smallest (~64px).
+        // Widgets can pick whichever they prefer.
+        artUrl: images[0] && images[0].url || null,
+        artUrlSmall: images[2] && images[2].url || (images[1] && images[1].url) || null,
+      },
+      durationMs: raw.duration_ms || 0,
+      isLocal: !!raw.is_local, isEpisode: false,
+      url: raw.external_urls && raw.external_urls.spotify || null,
+    };
+  }
+
+  function asDevice(raw) {
+    if (!raw) return null;
+    return {
+      id: raw.id, name: raw.name || '', type: raw.type || '',
+      isActive: !!raw.is_active, isPrivateSession: !!raw.is_private_session,
+      volumePercent: raw.volume_percent == null ? null : raw.volume_percent,
+    };
+  }
+
+  iappyx.plugin.export({
+    isConfigured: function () {
+      var c = creds();
+      return ok({ configured: !!(c.clientId && c.refreshToken) });
+    },
+
+    nowPlaying: function () {
+      return authedGet('/me/player/currently-playing').then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 204) return ok({ isPlaying: false, track: null, device: null });
+        if (r.status === 401) return err('access token rejected');
+        if (r.status >= 400) return err('server error ' + r.status);
+        var b = r.body || {};
+        return ok({
+          isPlaying: !!b.is_playing,
+          track: asTrack(b.item),
+          progressMs: b.progress_ms || 0,
+          // currently-playing doesn't include the device — caller can
+          // hit playbackState() for that.
+        });
+      });
+    },
+
+    playbackState: function () {
+      return authedGet('/me/player').then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 204) return ok({ isPlaying: false, track: null, device: null });
+        if (r.status === 401) return err('access token rejected');
+        if (r.status >= 400) return err('server error ' + r.status);
+        var b = r.body || {};
+        return ok({
+          isPlaying: !!b.is_playing,
+          track: asTrack(b.item),
+          progressMs: b.progress_ms || 0,
+          shuffle: !!b.shuffle_state,
+          repeat: b.repeat_state || 'off',
+          device: asDevice(b.device),
+        });
+      });
+    },
+
+    queue: function () {
+      return authedGet('/me/player/queue').then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 401) return err('access token rejected');
+        if (r.status >= 400) return err('server error ' + r.status);
+        var b = r.body || {};
+        return ok({
+          current: asTrack(b.currently_playing),
+          queue: (b.queue || []).map(asTrack).filter(Boolean),
+        });
+      });
+    },
+
+    recentlyPlayed: function (args) {
+      var count = Math.max(1, Math.min(50, (args && args.count) || 20));
+      return authedGet('/me/player/recently-played?limit=' + count).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 401) return err('access token rejected');
+        if (r.status >= 400) return err('server error ' + r.status);
+        var b = r.body || {};
+        var items = (b.items || []).map(function (it) {
+          return { track: asTrack(it.track), playedAt: it.played_at };
+        });
+        return ok({ items: items });
+      });
+    },
+
+    devices: function () {
+      return authedGet('/me/player/devices').then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 401) return err('access token rejected');
+        if (r.status >= 400) return err('server error ' + r.status);
+        var b = r.body || {};
+        return ok({ devices: (b.devices || []).map(asDevice).filter(Boolean) });
+      });
+    },
+
+    play: function (args) {
+      var uri = args && args.uri;
+      var deviceQs = (args && args.deviceId) ? '?device_id=' + encodeURIComponent(args.deviceId) : '';
+      // Spotify accepts {context_uri} for playlist/album/show, {uris}
+      // for an explicit track list. Heuristic: uri starts with
+      // spotify:track:* → uris[]; everything else → context_uri.
+      var body = null;
+      if (uri) {
+        if (/^spotify:track:/.test(uri)) body = { uris: [uri] };
+        else body = { context_uri: uri };
+      }
+      return authedMutate('PUT', '/me/player/play' + deviceQs, body).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 401) return err('access token rejected');
+        if (r.status === 403) return err('control failed — Premium required, or no active device');
+        if (r.status === 404) return err('no active device — open Spotify on a target device first');
+        if (r.status >= 400) return err('play failed ' + r.status + ': ' + (r.raw || ''));
+        return ok({});
+      });
+    },
+
+    pause:    function () { return _simpleMutate('PUT',  '/me/player/pause'); },
+    resume:   function () { return _simpleMutate('PUT',  '/me/player/play'); },
+    next:     function () { return _simpleMutate('POST', '/me/player/next'); },
+    previous: function () { return _simpleMutate('POST', '/me/player/previous'); },
+
+    seek: function (args) {
+      var pos = args && args.positionMs;
+      if (typeof pos !== 'number') return Promise.resolve(err('positionMs required'));
+      return _simpleMutate('PUT', '/me/player/seek?position_ms=' + Math.max(0, pos|0));
+    },
+
+    setVolume: function (args) {
+      var p = args && args.percent;
+      if (typeof p !== 'number') return Promise.resolve(err('percent required'));
+      p = Math.max(0, Math.min(100, p|0));
+      var qs = '?volume_percent=' + p;
+      if (args.deviceId) qs += '&device_id=' + encodeURIComponent(args.deviceId);
+      return _simpleMutate('PUT', '/me/player/volume' + qs);
+    },
+  });
+
+  /** Shared error mapping for the no-body player controls. */
+  function _simpleMutate(method, path) {
+    return authedMutate(method, path, null).then(function (r) {
+      if (r.error) return err(r.error);
+      if (r.status === 401) return err('access token rejected');
+      if (r.status === 403) return err('control failed — Premium required, or no active device');
+      if (r.status === 404) return err('no active device — open Spotify on a target device first');
+      if (r.status >= 400) return err('control failed ' + r.status);
+      return ok({});
+    });
+  }
+
+  iappyx.plugin.log('spotify plugin loaded');
+})();
+</script>
+</body>
+</html>
