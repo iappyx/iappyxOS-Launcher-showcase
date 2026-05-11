@@ -1,0 +1,6 @@
+{
+  "title": "Home Assistant",
+  "description": "Talk to a self-hosted Home Assistant. Widgets read entity states, fire services, pull history; wallpapers react to house mode — all via iappyx.plugin('home-assistant').*. Server URL + long-lived token stay in encrypted device storage.",
+  "author": "iappyx",
+  "added": "2026-05-12"
+}

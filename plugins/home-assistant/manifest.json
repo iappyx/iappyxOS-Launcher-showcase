@@ -1,0 +1,22 @@
+{
+  "id": "home-assistant",
+  "name": "Home Assistant",
+  "description": "Talk to a self-hosted Home Assistant instance. Configure with the server URL and a long-lived access token. Widgets and wallpapers read entity states, fire services (lights, switches, scripts, automations), and pull history — credentials stay in encrypted device storage.",
+  "version": "1.0.0",
+  "author": "iappyx",
+  "minLauncher": 1,
+  "background": false,
+  "capabilities": ["http", "secureStore", "storage", "scheduler"],
+  "settingsUi": "settings.html",
+  "exposes": [
+    { "name": "isConfigured", "args": {} },
+    { "name": "ping",         "args": {} },
+    { "name": "state",        "args": { "entityId": "string" } },
+    { "name": "states",       "args": { "domain": "string", "fresh": "bool" } },
+    { "name": "call",         "args": { "domain": "string", "service": "string", "data": "object", "target": "object" } },
+    { "name": "history",      "args": { "entityId": "string", "hours": "int" } },
+    { "name": "calendars",    "args": {} },
+    { "name": "events",       "args": { "entityId": "string", "hours": "int" } }
+  ],
+  "aiPrompt": "iappyx.plugin('home-assistant') talks to a self-hosted Home Assistant server (user configures URL + long-lived token via Settings → Plugins → Home Assistant → Configure). All methods return Promises. Use {ok:false, error} replies cleanly — an unconfigured plugin returns {ok:false, error:'not configured'}. Surface: isConfigured() → {ok, configured}. ping() → {ok, version, locationName} (uses /api/config). state({entityId}) → {ok, entity:{id, state, attributes, lastChanged, lastUpdated}} for a single entity like 'light.living_room' or 'sensor.outside_temp'. states({domain, fresh}) → {ok, entities:[...]} for everything (omit domain) or filtered by domain ('light','sensor','binary_sensor','climate','media_player','cover','switch','script','automation','calendar', etc.). Pass fresh:true to bypass the 30-second cache and re-fetch from HA. call({domain, service, data, target}) → {ok, status} fires a service like {domain:'light', service:'turn_on', target:{entity_id:'light.kitchen'}, data:{brightness_pct:60}}. Common services: light.turn_on/turn_off/toggle, switch.turn_on/turn_off, script.<name>, automation.trigger, climate.set_temperature, media_player.play_media. history({entityId, hours:1}) → {ok, points:[{state, timestamp, attributes}]} time-series of an entity's state. calendars() → {ok, calendars:[{entityId, name}]}. events({entityId, hours:24}) → {ok, events:[{summary, start, end, location, description}]} upcoming calendar events. Best for widgets: 'currently playing on living room speaker', 'living room temperature + thermostat setpoint', 'next 3 calendar events', 'tap to toggle all lights', 'graph of solar production today', 'motion-sensor heatmap'. Best for wallpapers: ambient awareness — wallpaper colour shifts with house mode (day/night/away), particle density mirrors energy consumption, etc."
+}

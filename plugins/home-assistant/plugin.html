@@ -1,0 +1,276 @@
+<!doctype html>
+<!--
+  Home Assistant plugin — runtime. Hidden WebView; never user-visible.
+
+  Surface (all return Promises):
+    iappyx.plugin('home-assistant').isConfigured()
+    iappyx.plugin('home-assistant').ping()
+    iappyx.plugin('home-assistant').state({entityId})
+    iappyx.plugin('home-assistant').states({domain, fresh})
+    iappyx.plugin('home-assistant').call({domain, service, data, target})
+    iappyx.plugin('home-assistant').history({entityId, hours})
+    iappyx.plugin('home-assistant').calendars()
+    iappyx.plugin('home-assistant').events({entityId, hours})
+
+  Credentials (server URL + long-lived token) live in iappyx.secureStore
+  under keys `serverUrl` and `token`. The Configure page (settings.html)
+  writes them; runtime re-reads on every call so a credential update
+  applies immediately without reloading the plugin WebView.
+
+  Lightweight caching: states({fresh:false}) hits a 30-second
+  iappyx.storage cache so widgets that re-render frequently don't
+  hammer the server. Pass {fresh:true} for a forced refresh.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Home Assistant plugin</title>
+</head>
+<body>
+<script>
+(function () {
+  'use strict';
+
+  var STATES_CACHE_KEY = 'cache_states_v1';
+  var STATES_CACHE_TTL_MS = 30 * 1000;
+
+  function creds() {
+    return {
+      serverUrl: (iappyx.secureStore.get('serverUrl') || '').replace(/\/+$/, ''),
+      token: iappyx.secureStore.get('token') || '',
+    };
+  }
+
+  function ok(extra)        { return Object.assign({ ok: true }, extra || {}); }
+  function err(message)     { return { ok: false, error: message }; }
+  function bearer(tok, extra) {
+    var h = { 'Authorization': 'Bearer ' + tok, 'Accept': 'application/json' };
+    if (extra) Object.keys(extra).forEach(function (k) { h[k] = extra[k]; });
+    return h;
+  }
+
+  function authedGet(path, extraHeaders) {
+    var c = creds();
+    if (!c.serverUrl || !c.token) {
+      return Promise.resolve({ status: 0, body: null, raw: '', error: 'not configured' });
+    }
+    return iappyx.httpClient.fetch({
+      url: c.serverUrl + path,
+      method: 'GET',
+      headers: bearer(c.token, extraHeaders),
+    }).then(function (r) {
+      var parsed = null;
+      try { parsed = r.body ? JSON.parse(r.body) : null; } catch (_) { /* plain text */ }
+      return { status: r.status, body: parsed, raw: r.body };
+    });
+  }
+
+  function authedPost(path, jsonObj) {
+    var c = creds();
+    if (!c.serverUrl || !c.token) {
+      return Promise.resolve({ status: 0, body: null, raw: '', error: 'not configured' });
+    }
+    return iappyx.httpClient.fetch({
+      url: c.serverUrl + path,
+      method: 'POST',
+      headers: bearer(c.token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify(jsonObj || {}),
+    }).then(function (r) {
+      var parsed = null;
+      try { parsed = r.body ? JSON.parse(r.body) : null; } catch (_) { /* */ }
+      return { status: r.status, body: parsed, raw: r.body };
+    });
+  }
+
+  /** Normalise an HA entity to a tighter shape — drop the verbose
+   *  context blocks and last-changed redundancy. Keeps attributes
+   *  verbatim though (widgets rely on `friendly_name`, `unit_of_measurement`,
+   *  `brightness`, `current_temperature`, `media_title`, etc.). */
+  function asEntity(raw) {
+    if (!raw) return null;
+    return {
+      id: raw.entity_id,
+      state: raw.state,
+      attributes: raw.attributes || {},
+      lastChanged: raw.last_changed || null,
+      lastUpdated: raw.last_updated || raw.last_changed || null,
+    };
+  }
+
+  function readCache() {
+    try {
+      var raw = iappyx.storage.load(STATES_CACHE_KEY);
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      if (!parsed || !parsed.ts || !parsed.entities) return null;
+      if (Date.now() - parsed.ts > STATES_CACHE_TTL_MS) return null;
+      return parsed.entities;
+    } catch (_) { return null; }
+  }
+  function writeCache(entities) {
+    try {
+      iappyx.storage.save(STATES_CACHE_KEY, JSON.stringify({ ts: Date.now(), entities: entities }));
+    } catch (_) { /* storage full or absent — non-fatal */ }
+  }
+
+  iappyx.plugin.export({
+    isConfigured: function () {
+      var c = creds();
+      return ok({ configured: !!(c.serverUrl && c.token) });
+    },
+
+    ping: function () {
+      return authedGet('/api/config').then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 401) return err('invalid token');
+        if (r.status >= 400) return err('server error ' + r.status);
+        var b = r.body || {};
+        return ok({
+          version: b.version || 'unknown',
+          locationName: b.location_name || '',
+          timeZone: b.time_zone || '',
+          unitSystem: b.unit_system || null,
+        });
+      });
+    },
+
+    state: function (args) {
+      var id = args && args.entityId;
+      if (!id) return Promise.resolve(err('entityId required'));
+      return authedGet('/api/states/' + encodeURIComponent(id)).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 401) return err('invalid token');
+        if (r.status === 404) return err('unknown entity ' + id);
+        if (r.status >= 400) return err('server error ' + r.status);
+        return ok({ entity: asEntity(r.body) });
+      });
+    },
+
+    states: function (args) {
+      var domain = (args && args.domain) || '';
+      var fresh = !!(args && args.fresh);
+      var cached = fresh ? null : readCache();
+      var prep = cached
+        ? Promise.resolve({ status: 200, body: cached })
+        : authedGet('/api/states').then(function (r) {
+            if (r.status >= 200 && r.status < 300 && Array.isArray(r.body)) {
+              writeCache(r.body);
+            }
+            return r;
+          });
+      return prep.then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 401) return err('invalid token');
+        if (r.status >= 400) return err('server error ' + r.status);
+        var arr = Array.isArray(r.body) ? r.body : [];
+        var entities = arr
+          .filter(function (e) {
+            if (!domain) return true;
+            return e.entity_id && e.entity_id.indexOf(domain + '.') === 0;
+          })
+          .map(asEntity)
+          .filter(Boolean);
+        return ok({ entities: entities, cached: !!cached });
+      });
+    },
+
+    call: function (args) {
+      var domain = args && args.domain;
+      var service = args && args.service;
+      if (!domain || !service) return Promise.resolve(err('domain + service required'));
+      var body = {};
+      if (args && args.data) {
+        Object.keys(args.data).forEach(function (k) { body[k] = args.data[k]; });
+      }
+      // HA accepts target keys inside the service-call body — entity_id,
+      // area_id, device_id are interchangeable with body params for
+      // most services. Merge target into the top-level body for
+      // simplicity (HA tolerates the redundancy gracefully).
+      if (args && args.target) {
+        Object.keys(args.target).forEach(function (k) { body[k] = args.target[k]; });
+      }
+      return authedPost('/api/services/' + encodeURIComponent(domain) +
+                        '/' + encodeURIComponent(service), body).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 401) return err('invalid token');
+        if (r.status >= 400) return err('service call failed ' + r.status + ': ' + (r.raw || ''));
+        // HA replies with an array of entity states it touched. Pass through.
+        return ok({ status: r.status, touched: Array.isArray(r.body) ? r.body.map(asEntity) : [] });
+      });
+    },
+
+    history: function (args) {
+      var id = args && args.entityId;
+      if (!id) return Promise.resolve(err('entityId required'));
+      var hours = Math.max(0.083, Math.min(24 * 7, (args && args.hours) || 1)); // 5 min … 7 d
+      var fromMs = Date.now() - hours * 3600 * 1000;
+      var fromIso = new Date(fromMs).toISOString();
+      var path = '/api/history/period/' + encodeURIComponent(fromIso) +
+                 '?filter_entity_id=' + encodeURIComponent(id);
+      return authedGet(path).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 401) return err('invalid token');
+        if (r.status >= 400) return err('server error ' + r.status);
+        // /history/period returns [[entityHistory]] — outer array per
+        // requested entity, inner array per state change. We only ever
+        // ask for one entity, so flatten the outer dimension.
+        var series = Array.isArray(r.body) && Array.isArray(r.body[0]) ? r.body[0] : [];
+        var points = series.map(function (s) {
+          return {
+            state: s.state,
+            timestamp: s.last_changed || s.last_updated,
+            attributes: s.attributes || {},
+          };
+        });
+        return ok({ points: points });
+      });
+    },
+
+    calendars: function () {
+      return authedGet('/api/calendars').then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 401) return err('invalid token');
+        if (r.status >= 400) return err('server error ' + r.status);
+        var arr = Array.isArray(r.body) ? r.body : [];
+        return ok({
+          calendars: arr.map(function (c) {
+            return { entityId: c.entity_id, name: c.name || c.entity_id };
+          }),
+        });
+      });
+    },
+
+    events: function (args) {
+      var id = args && args.entityId;
+      if (!id) return Promise.resolve(err('entityId required'));
+      var hours = Math.max(1, Math.min(24 * 30, (args && args.hours) || 24));
+      var nowIso = new Date().toISOString();
+      var endIso = new Date(Date.now() + hours * 3600 * 1000).toISOString();
+      var path = '/api/calendars/' + encodeURIComponent(id) +
+                 '?start=' + encodeURIComponent(nowIso) +
+                 '&end=' + encodeURIComponent(endIso);
+      return authedGet(path).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 401) return err('invalid token');
+        if (r.status >= 400) return err('server error ' + r.status);
+        var arr = Array.isArray(r.body) ? r.body : [];
+        return ok({
+          events: arr.map(function (e) {
+            return {
+              summary: e.summary || '',
+              start: (e.start && (e.start.dateTime || e.start.date)) || null,
+              end: (e.end && (e.end.dateTime || e.end.date)) || null,
+              location: e.location || '',
+              description: e.description || '',
+            };
+          }),
+        });
+      });
+    },
+  });
+
+  iappyx.plugin.log('home-assistant plugin loaded');
+})();
+</script>
+</body>
+</html>
