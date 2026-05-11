@@ -1,0 +1,252 @@
+<!doctype html>
+<!--
+  Immich plugin — runtime. Hidden WebView; never user-visible.
+
+  Surface:
+    iappyx.plugin('immich').isConfigured()
+    iappyx.plugin('immich').recent({count})
+    iappyx.plugin('immich').random({count})
+    iappyx.plugin('immich').albums()
+    iappyx.plugin('immich').album({id, count})
+    iappyx.plugin('immich').search({query, count})
+    iappyx.plugin('immich').thumbnail({assetId, size: 'thumbnail' | 'preview'})
+    iappyx.plugin('immich').image({assetId})
+
+  Credentials (server URL + API key) live in iappyx.secureStore under
+  keys `serverUrl` and `apiKey`. The Configure page (settings.html) puts
+  them; the runtime reads them on every call. We re-read every call so a
+  credential update in settings.html takes effect immediately without
+  reloading the plugin WebView.
+
+  Responses normalise Immich's asset shape to a tighter
+  {id, fileName, takenAt, type, duration}.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Immich plugin</title>
+</head>
+<body>
+<script>
+(function () {
+  'use strict';
+
+  function creds() {
+    return {
+      serverUrl: (iappyx.secureStore.get('serverUrl') || '').replace(/\/+$/, ''),
+      apiKey: iappyx.secureStore.get('apiKey') || '',
+    };
+  }
+
+  function ok(extra) { return Object.assign({ ok: true }, extra || {}); }
+  function err(message) { return { ok: false, error: message }; }
+
+  function authHeaders(apiKey, extra) {
+    var h = { 'x-api-key': apiKey, 'Accept': 'application/json' };
+    if (extra) Object.keys(extra).forEach(function (k) { h[k] = extra[k]; });
+    return h;
+  }
+
+  /** Normalise Immich's asset shape to something a widget can render
+   *  without learning the full Immich schema. We deliberately strip
+   *  EXIF / coordinates / device info — widgets shouldn't see metadata
+   *  the user might not want to expose. */
+  function asAsset(raw) {
+    if (!raw) return null;
+    return {
+      id: raw.id,
+      fileName: raw.originalFileName || raw.fileName || '',
+      takenAt: raw.fileCreatedAt || raw.localDateTime || raw.exifInfo && raw.exifInfo.dateTimeOriginal || null,
+      type: raw.type || 'IMAGE',
+      duration: raw.duration || null,
+    };
+  }
+
+  /** Common HTTP wrapper. Returns the response body parsed as JSON
+   *  (or null) plus the raw status. Caller checks status itself for
+   *  meaningful 4xx handling (e.g. 401 → "API key invalid"). */
+  function authedGetJson(path) {
+    var c = creds();
+    if (!c.serverUrl || !c.apiKey) return Promise.resolve({ status: 0, body: null, error: 'not configured' });
+    return iappyx.httpClient.fetch({
+      url: c.serverUrl + path,
+      method: 'GET',
+      headers: authHeaders(c.apiKey),
+    }).then(function (r) {
+      var parsed = null;
+      try { parsed = r.body ? JSON.parse(r.body) : null; } catch (_) { /* binary or empty */ }
+      return { status: r.status, body: parsed, raw: r.body };
+    });
+  }
+
+  function authedPostJson(path, jsonObj) {
+    var c = creds();
+    if (!c.serverUrl || !c.apiKey) return Promise.resolve({ status: 0, body: null, error: 'not configured' });
+    return iappyx.httpClient.fetch({
+      url: c.serverUrl + path,
+      method: 'POST',
+      headers: authHeaders(c.apiKey, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify(jsonObj || {}),
+    }).then(function (r) {
+      var parsed = null;
+      try { parsed = r.body ? JSON.parse(r.body) : null; } catch (_) { /* */ }
+      return { status: r.status, body: parsed, raw: r.body };
+    });
+  }
+
+  /** Fetch a binary endpoint (thumbnail / original). Returns a data
+   *  URL so widgets can drop it straight into an <img src=...>. */
+  function authedGetDataUrl(path, mime) {
+    var c = creds();
+    if (!c.serverUrl || !c.apiKey) return Promise.resolve(null);
+    return iappyx.httpClient.fetch({
+      url: c.serverUrl + path,
+      method: 'GET',
+      headers: authHeaders(c.apiKey),
+      responseType: 'base64',
+    }).then(function (r) {
+      if (r.status < 200 || r.status >= 300 || !r.body) return null;
+      // Server's Content-Type beats the caller's hint — Immich serves
+      // thumbnails as image/webp on newer versions, image/jpeg on
+      // older ones.
+      var serverMime = r.headers && (r.headers['content-type'] || r.headers['Content-Type']);
+      var actualMime = serverMime ? String(serverMime).split(';')[0] : mime;
+      return 'data:' + actualMime + ';base64,' + r.body;
+    });
+  }
+
+  iappyx.plugin.export({
+    isConfigured: function () {
+      var c = creds();
+      return ok({ configured: !!(c.serverUrl && c.apiKey) });
+    },
+
+    recent: function (args) {
+      var count = Math.max(1, Math.min(500, (args && args.count) || 20));
+      // POST /api/search/metadata: paginated, supports type filter,
+      // newest first by default. Use the lowest-page route so even
+      // freshly-uploaded assets land near the top.
+      return authedPostJson('/api/search/metadata', {
+        size: count, page: 1, type: 'IMAGE', order: 'desc',
+      }).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 401) return err('invalid API key');
+        if (r.status >= 400) return err('server error ' + r.status);
+        var items = (r.body && r.body.assets && r.body.assets.items) || [];
+        return ok({ assets: items.map(asAsset).filter(Boolean) });
+      });
+    },
+
+    random: function (args) {
+      var count = Math.max(1, Math.min(100, (args && args.count) || 12));
+      return authedPostJson('/api/search/random', {
+        size: count, type: 'IMAGE',
+      }).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 401) return err('invalid API key');
+        if (r.status >= 400) return err('server error ' + r.status);
+        // Random endpoint returns a bare array on most Immich
+        // versions; some older builds wrap it in {assets: [...]}.
+        var items = Array.isArray(r.body) ? r.body
+          : (r.body && r.body.assets) || [];
+        return ok({ assets: items.map(asAsset).filter(Boolean) });
+      });
+    },
+
+    albums: function () {
+      return authedGetJson('/api/albums').then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 401) return err('invalid API key');
+        if (r.status >= 400) return err('server error ' + r.status);
+        var arr = Array.isArray(r.body) ? r.body : [];
+        return ok({
+          albums: arr.map(function (a) {
+            return {
+              id: a.id,
+              name: a.albumName || a.name || '(untitled)',
+              assetCount: a.assetCount || (a.assets ? a.assets.length : 0),
+              thumbnailAssetId: a.albumThumbnailAssetId || (a.assets && a.assets[0] && a.assets[0].id) || null,
+            };
+          }),
+        });
+      });
+    },
+
+    album: function (args) {
+      var id = args && args.id;
+      if (!id) return Promise.resolve(err('id required'));
+      var count = Math.max(1, Math.min(500, (args && args.count) || 100));
+      return authedGetJson('/api/albums/' + encodeURIComponent(id)).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status === 401) return err('invalid API key');
+        if (r.status === 404) return err('album not found');
+        if (r.status >= 400) return err('server error ' + r.status);
+        var b = r.body || {};
+        var items = (b.assets || []).slice(0, count);
+        return ok({
+          name: b.albumName || b.name || '(untitled)',
+          assets: items.map(asAsset).filter(Boolean),
+        });
+      });
+    },
+
+    search: function (args) {
+      var query = (args && args.query) || '';
+      var count = Math.max(1, Math.min(100, (args && args.count) || 20));
+      if (!query) return Promise.resolve(err('query required'));
+      // Try smart (semantic) search first; fall back to metadata
+      // search if the server doesn't have ML configured.
+      return authedPostJson('/api/search/smart', {
+        query: query, size: count, type: 'IMAGE',
+      }).then(function (r) {
+        if (r.status >= 200 && r.status < 300) {
+          var items = (r.body && r.body.assets && r.body.assets.items) || [];
+          return ok({ assets: items.map(asAsset).filter(Boolean), kind: 'smart' });
+        }
+        // Fall back: metadata filename search.
+        return authedPostJson('/api/search/metadata', {
+          originalFileName: query, size: count, type: 'IMAGE',
+        }).then(function (r2) {
+          if (r2.error) return err(r2.error);
+          if (r2.status >= 400) return err('search failed (' + r2.status + ')');
+          var items = (r2.body && r2.body.assets && r2.body.assets.items) || [];
+          return ok({ assets: items.map(asAsset).filter(Boolean), kind: 'filename' });
+        });
+      });
+    },
+
+    thumbnail: function (args) {
+      var id = args && args.assetId;
+      if (!id) return Promise.resolve(err('assetId required'));
+      // Immich supports two thumb sizes: "thumbnail" (~300px) and
+      // "preview" (~1080px). Default to thumbnail — widgets that need
+      // higher res can ask for preview, but the data URL gets big
+      // fast.
+      var size = (args && args.size) || 'thumbnail';
+      return authedGetDataUrl(
+        '/api/assets/' + encodeURIComponent(id) + '/thumbnail?size=' + encodeURIComponent(size),
+        'image/jpeg'
+      ).then(function (url) {
+        if (!url) return err('thumbnail unavailable');
+        return ok({ dataUrl: url });
+      });
+    },
+
+    image: function (args) {
+      var id = args && args.assetId;
+      if (!id) return Promise.resolve(err('assetId required'));
+      return authedGetDataUrl(
+        '/api/assets/' + encodeURIComponent(id) + '/original',
+        'image/jpeg'
+      ).then(function (url) {
+        if (!url) return err('image unavailable');
+        return ok({ dataUrl: url });
+      });
+    },
+  });
+
+  iappyx.plugin.log('immich plugin loaded');
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "title": "Immich",
+  "description": "Photos from a self-hosted Immich server. Configure with a server URL and an API key — widgets and wallpapers can request recent, random, or album photos via iappyx.plugin('immich').* without ever seeing the credentials.",
+  "author": "iappyx",
+  "added": "2026-05-11"
+}

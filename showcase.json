@@ -527,5 +527,14 @@
       "author": "iappyx",
       "added": "2026-04-30"
     }
+  ],
+  "plugins": [
+    {
+      "slug": "immich",
+      "title": "Immich",
+      "description": "Photos from a self-hosted Immich server. Widgets and wallpapers fetch recent, random, or album photos via iappyx.plugin('immich').* — credentials stay in encrypted device storage.",
+      "author": "iappyx",
+      "added": "2026-05-11"
+    }
   ]
 }

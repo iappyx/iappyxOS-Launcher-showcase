@@ -1,0 +1,22 @@
+{
+  "id": "immich",
+  "name": "Immich",
+  "description": "Photos from a self-hosted Immich server. Configure with the server URL and an API key (Account Settings → API Keys on your Immich instance). Widgets and wallpapers can request recent, random, or album photos without ever seeing the credentials.",
+  "version": "1.0.0",
+  "author": "iappyx",
+  "minLauncher": 1,
+  "background": false,
+  "capabilities": ["http", "secureStore"],
+  "settingsUi": "settings.html",
+  "exposes": [
+    { "name": "isConfigured", "args": {} },
+    { "name": "recent",       "args": { "count": "int" } },
+    { "name": "random",       "args": { "count": "int" } },
+    { "name": "albums",       "args": {} },
+    { "name": "album",        "args": { "id": "string", "count": "int" } },
+    { "name": "search",       "args": { "query": "string", "count": "int" } },
+    { "name": "thumbnail",    "args": { "assetId": "string", "size": "string" } },
+    { "name": "image",        "args": { "assetId": "string" } }
+  ],
+  "aiPrompt": "iappyx.plugin('immich') talks to a self-hosted Immich photo server (configured by the user in Settings → Plugins → Immich → Configure). All methods return Promises. Methods: isConfigured() → {ok:true, configured:bool}. recent({count}) → {ok:true, assets:[{id, fileName, takenAt, type, duration}]} newest first. random({count}) → same shape but random pick. albums() → {ok:true, albums:[{id, name, assetCount, thumbnailAssetId}]}. album({id, count}) → {ok:true, name, assets:[...]}. search({query, count}) → {ok:true, assets:[...]} keyword search. thumbnail({assetId, size}) → {ok:true, dataUrl: 'data:image/jpeg;base64,...'} where size is 'thumbnail' (~300px) or 'preview' (~1080px). image({assetId}) → {ok:true, dataUrl: 'data:image/jpeg;base64,...'} full-res, can be many MB — prefer thumbnails. Always check {ok}: an unconfigured plugin returns {ok:false, error:'not configured'}. The plugin gracefully degrades when offline (caches the last successful recent() result via iappyx.storage)."
+}
