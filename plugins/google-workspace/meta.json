@@ -1,0 +1,6 @@
+{
+  "title": "Google Workspace",
+  "description": "Gmail, Calendar (incl. shared), Drive, Tasks, and Google Sheets range reads in widgets and wallpapers. Surface via iappyx.plugin('google-workspace').*. One-time device-flow OAuth; auto-refreshes thereafter. Works with personal Google accounts and Workspace orgs.",
+  "author": "iappyx",
+  "added": "2026-05-13"
+}

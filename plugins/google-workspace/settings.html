@@ -1,0 +1,310 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Configure Google Workspace</title>
+  <style>
+    :root { --bg:#0d0d12; --text:#ECECEC; --hint:#8E8E97; --line:#2a2a36;
+            --accent:#4285F4; --error:#FF5252; --ok:#66BB6A; }
+    *{box-sizing:border-box} html,body{margin:0;padding:0;height:100%;
+      background:var(--bg);color:var(--text);
+      font:15px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text",Roboto,sans-serif}
+    .wrap{padding:20px;padding-top:max(20px,env(safe-area-inset-top));
+      padding-bottom:max(20px,env(safe-area-inset-bottom));max-width:640px;margin:0 auto}
+    h1{font-size:22px;margin:0 0 4px}
+    .sub{color:var(--hint);font-size:13px;margin-bottom:18px}
+    details{background:#0a0a10;border:1px solid var(--line);border-radius:10px;
+      padding:12px 14px;margin-bottom:18px}
+    details summary{cursor:pointer;font-size:13px;color:var(--accent);
+      list-style:none;outline:none}
+    details summary::-webkit-details-marker{display:none}
+    details[open] summary{margin-bottom:8px}
+    details ol{margin:0;padding-left:18px;font-size:13px;line-height:1.55;color:var(--text)}
+    details li{margin-bottom:6px}
+    details code{background:#000;border:1px solid var(--line);padding:1px 5px;
+      border-radius:4px;font-size:11px;word-break:break-all}
+    details a{color:var(--accent)}
+    .field{margin-bottom:16px}
+    label{display:block;color:var(--hint);font-size:12px;text-transform:uppercase;
+      letter-spacing:.07em;margin-bottom:6px}
+    input[type=text],input[type=password],textarea{width:100%;background:#0a0a10;
+      color:var(--text);border:1px solid var(--line);border-radius:10px;
+      padding:12px 14px;font:inherit;resize:vertical}
+    input:focus,textarea:focus{outline:2px solid var(--accent);border-color:transparent}
+    .row{display:flex;gap:10px;margin-top:18px}
+    button{flex:1;background:transparent;color:var(--text);border:1px solid var(--line);
+      border-radius:10px;padding:12px;font:inherit;cursor:pointer}
+    button.primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .status{margin-top:14px;padding:10px 12px;border-radius:8px;font-size:13px;display:none}
+    .status.ok{background:rgba(102,187,106,.15);color:var(--ok);
+      border:1px solid rgba(102,187,106,.4);display:block}
+    .status.err{background:rgba(255,82,82,.10);color:var(--error);
+      border:1px solid rgba(255,82,82,.4);display:block}
+    .hint{color:var(--hint);font-size:12px;line-height:1.5;margin-top:6px}
+    .device-pane{margin-top:18px;padding:18px;background:#0a0a10;
+      border:1px solid var(--line);border-radius:10px;display:none}
+    .device-pane.active{display:block}
+    .device-pane p{margin:0 0 10px}
+    .device-pane a{color:var(--accent);font-size:15px;word-break:break-all}
+    .user-code{font-family:"SF Mono","Roboto Mono",ui-monospace,monospace;
+      font-size:28px;letter-spacing:.18em;color:var(--text);
+      padding:14px 16px;background:#000;border-radius:8px;text-align:center;
+      margin:14px 0;font-weight:700;user-select:all}
+    .poll{color:var(--hint);font-size:12px;display:flex;align-items:center;gap:8px}
+    .poll::before{content:"";width:8px;height:8px;border-radius:50%;
+      background:var(--accent);animation:pulse 1.2s ease-in-out infinite}
+    @keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}
+    .copy-btn{margin-left:8px;background:transparent;color:var(--accent);
+      border:1px solid rgba(66,133,244,.4);border-radius:6px;padding:3px 8px;
+      font-size:11px;cursor:pointer;flex:0 0 auto;width:auto;display:inline-block}
+    .connected-banner{margin-bottom:14px;padding:10px 14px;
+      background:rgba(102,187,106,.10);border:1px solid rgba(102,187,106,.35);
+      border-radius:10px;color:var(--ok);font-size:13px;display:none}
+    .connected-banner.show{display:block}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Google Workspace</h1>
+  <p class="sub">Sign in once with your Google account — the plugin handles token refresh from there.</p>
+
+  <div id="connected-banner" class="connected-banner">
+    <strong>Connected.</strong> The plugin has a working refresh token. Click <em>Disconnect</em> to remove it.
+  </div>
+
+  <details>
+    <summary>One-time Google Cloud setup (~5 min, do this first)</summary>
+    <ol>
+      <li>Open <a href="https://console.cloud.google.com" target="_blank">console.cloud.google.com</a>. <strong>Create a new project</strong> (or pick an existing one). Free, no billing required.</li>
+      <li>Search top bar for <strong>"APIs &amp; Services" → "Enabled APIs &amp; services"</strong>. Click <strong>Enable APIs and Services</strong> and enable each of: Gmail API, Google Calendar API, Google Drive API, Google Tasks API, Google Sheets API. (5 separate clicks.)</li>
+      <li>Side menu → <strong>OAuth consent screen</strong>. User type: <strong>External</strong> if personal account; Internal if a Workspace org. Fill app name + your email. Save. Add scopes? Skip — the plugin requests them at sign-in time. Add yourself as a test user under "Test users".</li>
+      <li>Side menu → <strong>Credentials → Create Credentials → OAuth client ID</strong>. Application type: <strong>TVs and Limited Input devices</strong> (for the device-flow we use). Name: anything. Copy both the <strong>Client ID</strong> and <strong>Client secret</strong> shown.</li>
+      <li>Paste them below. (The "secret" here is published-with-the-app shape — same trust level as Microsoft's public client model.)</li>
+    </ol>
+    <p class="hint" style="margin-top:10px">
+      That's all. After this, every <em>Connect Google account</em> click below opens a Google sign-in page — no copying codes from URLs, no curl.
+    </p>
+  </details>
+
+  <div class="field">
+    <label for="client-id">Client ID</label>
+    <input id="client-id" type="text" autocomplete="off" autocapitalize="off" autocorrect="off"
+           placeholder="e.g. 12345-abcde.apps.googleusercontent.com" />
+  </div>
+
+  <div class="field">
+    <label for="client-secret">Client secret</label>
+    <input id="client-secret" type="text" autocomplete="off" autocapitalize="off" autocorrect="off"
+           placeholder="e.g. GOCSPX-xxxxxxxxxxxxxxxxxxxxxxxxxx" />
+    <p class="hint">From your OAuth credentials. Required by Google's token endpoint even for "TVs and Limited Input devices" clients.</p>
+  </div>
+
+  <div class="row">
+    <button id="connect-btn" class="primary">Connect Google account</button>
+    <button id="disconnect-btn">Disconnect</button>
+  </div>
+
+  <div id="device-pane" class="device-pane">
+    <p>1. In your browser, open:</p>
+    <p><a id="verification-link" target="_blank" rel="noopener"></a></p>
+    <p style="margin-top:14px">2. Enter this code when prompted:</p>
+    <div id="user-code" class="user-code">—</div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="poll" id="poll-status">Waiting for you to approve in the browser…</span>
+      <button class="copy-btn" id="copy-code">Copy code</button>
+    </div>
+  </div>
+
+  <div id="status" class="status"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var SCOPE = [
+    'openid', 'email', 'profile',
+    'https://www.googleapis.com/auth/gmail.readonly',
+    'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/tasks.readonly',
+    'https://www.googleapis.com/auth/spreadsheets.readonly',
+  ].join(' ');
+  var DEVICECODE_URL = 'https://oauth2.googleapis.com/device/code';
+  var TOKEN_URL      = 'https://oauth2.googleapis.com/token';
+
+  var idField        = document.getElementById('client-id');
+  var secretField    = document.getElementById('client-secret');
+  var connectBtn     = document.getElementById('connect-btn');
+  var disconnectBtn  = document.getElementById('disconnect-btn');
+  var copyCodeBtn    = document.getElementById('copy-code');
+  var status         = document.getElementById('status');
+  var banner         = document.getElementById('connected-banner');
+  var devicePane     = document.getElementById('device-pane');
+  var userCodeEl     = document.getElementById('user-code');
+  var pollEl         = document.getElementById('poll-status');
+  var verifyLink     = document.getElementById('verification-link');
+
+  idField.value     = iappyx.secureStore.get('clientId')     || '';
+  secretField.value = iappyx.secureStore.get('clientSecret') || '';
+  if (idField.value && secretField.value && iappyx.secureStore.get('refreshToken')) {
+    banner.classList.add('show');
+  }
+
+  function setStatus(kind, message) {
+    status.className = 'status ' + kind;
+    status.textContent = message;
+  }
+
+  function persist(clientId, clientSecret, refreshToken) {
+    iappyx.secureStore.set('clientId', clientId);
+    iappyx.secureStore.set('clientSecret', clientSecret);
+    iappyx.secureStore.set('refreshToken', refreshToken);
+    iappyx.secureStore.set('scope', SCOPE);
+    banner.classList.add('show');
+  }
+
+  var pollSession = 0;
+
+  async function connect() {
+    var clientId = idField.value.trim();
+    var clientSecret = secretField.value.trim();
+    if (!clientId || !clientSecret) {
+      setStatus('err', 'Paste both Client ID and Client secret first.');
+      return;
+    }
+    var sess = ++pollSession;
+
+    connectBtn.disabled = true; disconnectBtn.disabled = true;
+    devicePane.classList.remove('active');
+    setStatus('ok', 'Requesting device code…');
+
+    var dc;
+    try {
+      var r = await iappyx.httpClient.fetch({
+        url: DEVICECODE_URL,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded',
+                   'Accept': 'application/json' },
+        body: 'client_id=' + encodeURIComponent(clientId)
+            + '&scope='   + encodeURIComponent(SCOPE),
+      });
+      dc = JSON.parse(r.body || '{}');
+      if (!dc.device_code) {
+        var why = dc.error_description || dc.error || ('HTTP ' + r.status);
+        setStatus('err', 'Failed to request device code: ' + why);
+        connectBtn.disabled = false; disconnectBtn.disabled = false;
+        return;
+      }
+    } catch (e) {
+      setStatus('err', 'Network error: ' + (e.message || e));
+      connectBtn.disabled = false; disconnectBtn.disabled = false;
+      return;
+    }
+
+    userCodeEl.textContent = dc.user_code;
+    verifyLink.textContent = dc.verification_url || dc.verification_uri;
+    verifyLink.href = dc.verification_url || dc.verification_uri;
+    devicePane.classList.add('active');
+    pollEl.textContent = 'Waiting for you to approve in the browser…';
+    setStatus('', '');
+
+    var intervalSec = dc.interval || 5;
+    var expiresAt = Date.now() + (dc.expires_in || 1800) * 1000;
+
+    while (Date.now() < expiresAt) {
+      if (sess !== pollSession) return;
+      await new Promise(function (res) { setTimeout(res, intervalSec * 1000); });
+      if (sess !== pollSession) return;
+
+      var tok;
+      try {
+        var r2 = await iappyx.httpClient.fetch({
+          url: TOKEN_URL,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded',
+                     'Accept': 'application/json' },
+          body: 'client_id='     + encodeURIComponent(clientId)
+              + '&client_secret=' + encodeURIComponent(clientSecret)
+              + '&device_code='   + encodeURIComponent(dc.device_code)
+              + '&grant_type='    + encodeURIComponent('http://oauth.net/grant_type/device/1.0'),
+        });
+        tok = JSON.parse(r2.body || '{}');
+      } catch (e) {
+        continue;
+      }
+
+      if (tok.refresh_token) {
+        persist(clientId, clientSecret, tok.refresh_token);
+        devicePane.classList.remove('active');
+        setStatus('ok', 'Connected.');
+        connectBtn.disabled = false; disconnectBtn.disabled = false;
+        return;
+      }
+
+      // Google's device flow uses these error codes:
+      //   authorization_pending → keep polling
+      //   slow_down → back off + 5s
+      //   access_denied → user said no
+      //   expired_token → start over
+      if (tok.error === 'authorization_pending') {
+        pollEl.textContent = 'Still waiting for approval…';
+        continue;
+      }
+      if (tok.error === 'slow_down') {
+        intervalSec += 5;
+        pollEl.textContent = 'Google asked us to slow down — waiting ' + intervalSec + 's…';
+        continue;
+      }
+      if (tok.error === 'access_denied') {
+        setStatus('err', 'You declined the sign-in. Click Connect to try again.');
+        devicePane.classList.remove('active');
+        connectBtn.disabled = false; disconnectBtn.disabled = false;
+        return;
+      }
+      if (tok.error === 'expired_token') {
+        setStatus('err', 'Code expired. Click Connect to start over.');
+        devicePane.classList.remove('active');
+        connectBtn.disabled = false; disconnectBtn.disabled = false;
+        return;
+      }
+      var why2 = tok.error_description || tok.error || 'unknown error';
+      setStatus('err', 'Sign-in failed: ' + why2);
+      devicePane.classList.remove('active');
+      connectBtn.disabled = false; disconnectBtn.disabled = false;
+      return;
+    }
+
+    setStatus('err', 'Device code expired before approval. Click Connect to try again.');
+    devicePane.classList.remove('active');
+    connectBtn.disabled = false; disconnectBtn.disabled = false;
+  }
+
+  function disconnect() {
+    pollSession++;
+    iappyx.secureStore.remove('refreshToken');
+    banner.classList.remove('show');
+    devicePane.classList.remove('active');
+    setStatus('ok', 'Disconnected.');
+  }
+
+  connectBtn.addEventListener('click', connect);
+  disconnectBtn.addEventListener('click', disconnect);
+  copyCodeBtn.addEventListener('click', function () {
+    try {
+      navigator.clipboard.writeText(userCodeEl.textContent || '').then(function () {
+        copyCodeBtn.textContent = 'Copied';
+        setTimeout(function () { copyCodeBtn.textContent = 'Copy code'; }, 1500);
+      });
+    } catch (_) {}
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') connect();
+  });
+})();
+</script>
+</body>
+</html>

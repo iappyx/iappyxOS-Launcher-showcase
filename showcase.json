@@ -563,6 +563,20 @@
       "description": "Outlook mail, Calendar, To Do, OneDrive, OneNote, and Excel range reads in widgets and wallpapers via Microsoft Graph. Surface via iappyx.plugin('office365').*. One-time OAuth setup; auto-refreshes thereafter. Works with personal Microsoft accounts and work/school tenants.",
       "author": "iappyx",
       "added": "2026-05-12"
+    },
+    {
+      "slug": "google-workspace",
+      "title": "Google Workspace",
+      "description": "Gmail, Calendar (incl. shared), Drive, Tasks, and Google Sheets range reads in widgets and wallpapers. Surface via iappyx.plugin('google-workspace').*. One-time device-flow OAuth; auto-refreshes thereafter. Works with personal Google accounts and Workspace orgs.",
+      "author": "iappyx",
+      "added": "2026-05-13"
+    },
+    {
+      "slug": "github",
+      "title": "GitHub",
+      "description": "PR review queue, notifications, assigned issues, starred repos, contribution heatmap, and per-repo stats in widgets via the GitHub REST API. Surface via iappyx.plugin('github').*. Auth via a Personal Access Token — no OAuth dance.",
+      "author": "iappyx",
+      "added": "2026-05-13"
     }
   ]
 }

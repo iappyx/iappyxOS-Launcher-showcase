@@ -1,0 +1,153 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Configure GitHub</title>
+  <style>
+    :root { --bg:#0d0d12; --text:#ECECEC; --hint:#8E8E97; --line:#2a2a36;
+            --accent:#FFFFFF; --error:#FF5252; --ok:#66BB6A; }
+    *{box-sizing:border-box} html,body{margin:0;padding:0;height:100%;
+      background:var(--bg);color:var(--text);
+      font:15px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text",Roboto,sans-serif}
+    .wrap{padding:20px;padding-top:max(20px,env(safe-area-inset-top));
+      padding-bottom:max(20px,env(safe-area-inset-bottom));max-width:640px;margin:0 auto}
+    h1{font-size:22px;margin:0 0 4px}
+    .sub{color:var(--hint);font-size:13px;margin-bottom:18px}
+    details{background:#0a0a10;border:1px solid var(--line);border-radius:10px;
+      padding:12px 14px;margin-bottom:18px}
+    details summary{cursor:pointer;font-size:13px;color:var(--accent);
+      list-style:none;outline:none}
+    details summary::-webkit-details-marker{display:none}
+    details[open] summary{margin-bottom:8px}
+    details ol{margin:0;padding-left:18px;font-size:13px;line-height:1.55;color:var(--text)}
+    details li{margin-bottom:6px}
+    details code{background:#000;border:1px solid var(--line);padding:1px 5px;
+      border-radius:4px;font-size:11px;word-break:break-all}
+    details a{color:var(--accent)}
+    .field{margin-bottom:16px}
+    label{display:block;color:var(--hint);font-size:12px;text-transform:uppercase;
+      letter-spacing:.07em;margin-bottom:6px}
+    input[type=text],input[type=password],textarea{width:100%;background:#0a0a10;
+      color:var(--text);border:1px solid var(--line);border-radius:10px;
+      padding:12px 14px;font:inherit;resize:vertical}
+    input:focus,textarea:focus{outline:2px solid var(--accent);border-color:transparent}
+    .row{display:flex;gap:10px;margin-top:18px}
+    button{flex:1;background:transparent;color:var(--text);border:1px solid var(--line);
+      border-radius:10px;padding:12px;font:inherit;cursor:pointer}
+    button.primary{background:var(--text);color:#000;border-color:var(--text);font-weight:600}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .status{margin-top:14px;padding:10px 12px;border-radius:8px;font-size:13px;display:none}
+    .status.ok{background:rgba(102,187,106,.15);color:var(--ok);
+      border:1px solid rgba(102,187,106,.4);display:block}
+    .status.err{background:rgba(255,82,82,.10);color:var(--error);
+      border:1px solid rgba(255,82,82,.4);display:block}
+    .hint{color:var(--hint);font-size:12px;line-height:1.5;margin-top:6px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>GitHub</h1>
+  <p class="sub">Surface PR review queue, notifications, issues, starred repos, and per-repo stats. Auth is a Personal Access Token — no OAuth dance.</p>
+
+  <details>
+    <summary>How to create a Personal Access Token (~2 min)</summary>
+    <ol>
+      <li>Open <a href="https://github.com/settings/tokens?type=beta" target="_blank">github.com/settings/tokens?type=beta</a> (fine-grained) or <a href="https://github.com/settings/tokens" target="_blank">github.com/settings/tokens</a> (classic).</li>
+      <li><strong>Fine-grained (recommended):</strong> Generate new token. Resource owner: yourself. Repository access: "All repositories" if you want repo traffic across everything, or pick specific ones. Permissions:
+        <ul style="margin-top:6px;padding-left:20px;font-size:13px;line-height:1.5">
+          <li>Repository: <code>Contents:Read</code>, <code>Issues:Read</code>, <code>Pull requests:Read</code>, <code>Metadata:Read</code> (mandatory), <code>Administration:Read</code> (for traffic stats — optional)</li>
+          <li>Account: <code>Email addresses:Read</code> (optional), <code>Followers:Read</code> (optional)</li>
+        </ul>
+      </li>
+      <li><strong>Classic alternative:</strong> select scopes <code>repo</code>, <code>notifications</code>, <code>read:user</code>. Simpler but coarser-grained.</li>
+      <li>Set expiration to <strong>No expiration</strong> if you don't want to come back here in a year — security trade-off is up to you.</li>
+      <li>Generate token, copy it (you only see it once), and paste below.</li>
+    </ol>
+  </details>
+
+  <div class="field">
+    <label for="token">Personal Access Token</label>
+    <input id="token" type="password" autocomplete="off" autocapitalize="off" autocorrect="off"
+           placeholder="ghp_… (classic) or github_pat_… (fine-grained)" />
+    <p class="hint">Starts with <code>ghp_</code> for classic PATs, <code>github_pat_</code> for fine-grained.</p>
+  </div>
+
+  <div class="row">
+    <button id="test-btn">Test connection</button>
+    <button id="save-btn" class="primary">Save</button>
+  </div>
+
+  <div id="status" class="status"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var tokField = document.getElementById('token');
+  var testBtn  = document.getElementById('test-btn');
+  var saveBtn  = document.getElementById('save-btn');
+  var status   = document.getElementById('status');
+
+  tokField.value = iappyx.secureStore.get('token') || '';
+
+  function setStatus(kind, message) {
+    status.className = 'status ' + kind;
+    status.textContent = message;
+  }
+
+  testBtn.addEventListener('click', async function () {
+    var tok = tokField.value.trim();
+    if (!tok) { setStatus('err', 'Paste a token first.'); return; }
+    testBtn.disabled = true; saveBtn.disabled = true;
+    setStatus('ok', 'Checking…');
+    try {
+      var r = await iappyx.httpClient.fetch({
+        url: 'https://api.github.com/user',
+        headers: { 'Authorization': 'Bearer ' + tok,
+                   'Accept': 'application/vnd.github+json',
+                   'X-GitHub-Api-Version': '2022-11-28' },
+      });
+      if (r.status === 401) { setStatus('err', 'Token rejected — check scopes / expiry.'); return; }
+      if (r.status !== 200) {
+        var parsed = {};
+        try { parsed = JSON.parse(r.body) || {}; } catch (_) {}
+        setStatus('err', 'HTTP ' + r.status + ': ' + (parsed.message || r.body));
+        return;
+      }
+      var info = {};
+      try { info = JSON.parse(r.body) || {}; } catch (_) {}
+      setStatus('ok', 'Connected as @' + (info.login || '?')
+        + ' · ' + (info.public_repos || 0) + ' public repos.');
+    } catch (e) {
+      setStatus('err', 'Network error: ' + ((e && e.message) || e));
+    } finally {
+      testBtn.disabled = false; saveBtn.disabled = false;
+    }
+  });
+
+  saveBtn.addEventListener('click', async function () {
+    var tok = tokField.value.trim();
+    if (!tok) { setStatus('err', 'Paste a token first.'); return; }
+    iappyx.secureStore.set('token', tok);
+    // Cache login so recentEvents doesn't need a round-trip on every call.
+    try {
+      var r = await iappyx.httpClient.fetch({
+        url: 'https://api.github.com/user',
+        headers: { 'Authorization': 'Bearer ' + tok,
+                   'Accept': 'application/vnd.github+json' },
+      });
+      var info = JSON.parse(r.body || '{}');
+      if (info.login) iappyx.secureStore.set('login', info.login);
+    } catch (_) { /* non-fatal — runtime will resolve on first use */ }
+    setStatus('ok', 'Saved.');
+    setTimeout(function () { iappyx.plugin.close(); }, 400);
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') saveBtn.click();
+  });
+})();
+</script>
+</body>
+</html>

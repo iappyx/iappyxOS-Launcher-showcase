@@ -1,0 +1,397 @@
+<!doctype html>
+<!--
+  GitHub plugin — runtime.
+
+  Auth: simple Personal Access Token (classic or fine-grained). Pasted
+  into settings.html, stored in secureStore. No OAuth dance — PATs are
+  much friendlier than OAuth for a single-user plugin, and GitHub's
+  fine-grained PATs let the user scope down to specific repos.
+
+  Surface — see manifest.aiPrompt for the full list.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>GitHub plugin</title>
+</head>
+<body>
+<script>
+(function () {
+  'use strict';
+
+  var API_BASE = 'https://api.github.com';
+
+  function ok(extra)    { return Object.assign({ ok: true }, extra || {}); }
+  function err(message) { return { ok: false, error: message }; }
+
+  function token() { return iappyx.secureStore.get('token') || ''; }
+  function userLogin() { return iappyx.secureStore.get('login') || ''; }
+
+  function authedGet(path) {
+    var t = token();
+    if (!t) return Promise.resolve({ status: 0, body: null, error: 'not configured' });
+    return iappyx.httpClient.fetch({
+      url: API_BASE + path,
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + t,
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    }).then(function (r) {
+      var parsed = null;
+      try { parsed = r.body ? JSON.parse(r.body) : null; } catch (_) {}
+      return { status: r.status, body: parsed, raw: r.body };
+    });
+  }
+
+  function statusErr(status) {
+    if (status === 401) return 'token invalid or revoked';
+    if (status === 403) return 'rate limited or scope missing';
+    if (status === 404) return 'not found (private repo without scope?)';
+    return 'server error ' + status;
+  }
+
+  // ── shape adapters ───────────────────────────────────────────
+  function asRepoSummary(raw) {
+    if (!raw) return null;
+    return {
+      owner: raw.owner && raw.owner.login || '',
+      name: raw.name || '',
+      fullName: raw.full_name || '',
+      description: raw.description || '',
+      language: raw.language || '',
+      stars: raw.stargazers_count || 0,
+      forks: raw.forks_count || 0,
+      openIssues: raw.open_issues_count || 0,
+      updatedAt: raw.updated_at || null,
+      pushedAt: raw.pushed_at || null,
+      htmlUrl: raw.html_url || null,
+      isArchived: !!raw.archived,
+      isFork: !!raw.fork,
+      isPrivate: !!raw.private,
+      defaultBranch: raw.default_branch || 'main',
+    };
+  }
+
+  function asPullRequest(raw) {
+    if (!raw) return null;
+    var repo = '';
+    if (raw.repository_url) {
+      // search API gives repository_url like https://api.github.com/repos/owner/name
+      var parts = raw.repository_url.split('/');
+      repo = parts.slice(-2).join('/');
+    } else if (raw.base && raw.base.repo) {
+      repo = raw.base.repo.full_name;
+    }
+    return {
+      repo: repo,
+      number: raw.number,
+      title: raw.title || '',
+      author: raw.user && raw.user.login || '',
+      draft: !!raw.draft,
+      mergeable: raw.mergeable_state !== 'dirty' && raw.mergeable !== false,
+      state: raw.state || 'open',
+      createdAt: raw.created_at || null,
+      updatedAt: raw.updated_at || null,
+      closedAt: raw.closed_at || null,
+      mergedAt: raw.merged_at || null,
+      htmlUrl: raw.html_url || null,
+      additions: raw.additions || 0,
+      deletions: raw.deletions || 0,
+      commits: raw.commits || 0,
+      reviewers: (raw.requested_reviewers || []).map(function (u) { return u.login; }),
+      labels: (raw.labels || []).map(function (l) { return { name: l.name, color: l.color }; }),
+      body: raw.body || '',
+    };
+  }
+
+  function asIssue(raw) {
+    if (!raw) return null;
+    var repo = '';
+    if (raw.repository_url) {
+      var parts = raw.repository_url.split('/');
+      repo = parts.slice(-2).join('/');
+    }
+    return {
+      repo: repo,
+      number: raw.number,
+      title: raw.title || '',
+      author: raw.user && raw.user.login || '',
+      state: raw.state || 'open',
+      labels: (raw.labels || []).map(function (l) { return { name: l.name, color: l.color }; }),
+      assignees: (raw.assignees || []).map(function (u) { return u.login; }),
+      createdAt: raw.created_at || null,
+      updatedAt: raw.updated_at || null,
+      htmlUrl: raw.html_url || null,
+      comments: raw.comments || 0,
+      isPullRequest: !!raw.pull_request,
+    };
+  }
+
+  function asNotification(raw) {
+    if (!raw) return null;
+    var subject = raw.subject || {};
+    return {
+      id: raw.id,
+      repo: raw.repository && raw.repository.full_name || '',
+      type: subject.type || 'Notification',
+      title: subject.title || '',
+      reason: raw.reason || '',
+      updatedAt: raw.updated_at || null,
+      lastReadAt: raw.last_read_at || null,
+      url: subject.url || null,
+      unread: !!raw.unread,
+    };
+  }
+
+  function asEvent(raw) {
+    if (!raw) return null;
+    var summary = '';
+    var p = raw.payload || {};
+    switch (raw.type) {
+      case 'PushEvent':
+        summary = (p.size || 0) + ' commit(s) to ' + (p.ref || '').replace('refs/heads/', '');
+        break;
+      case 'PullRequestEvent':
+        summary = (p.action || 'updated') + ' PR #' + (p.pull_request && p.pull_request.number);
+        break;
+      case 'IssuesEvent':
+        summary = (p.action || 'updated') + ' issue #' + (p.issue && p.issue.number);
+        break;
+      case 'ReleaseEvent':
+        summary = 'released ' + (p.release && (p.release.tag_name || p.release.name));
+        break;
+      case 'WatchEvent': summary = 'starred'; break;
+      case 'ForkEvent':  summary = 'forked'; break;
+      case 'CreateEvent': summary = 'created ' + (p.ref_type || '') + ' ' + (p.ref || ''); break;
+      default: summary = (p.action || '') || '';
+    }
+    return {
+      type: raw.type || '',
+      repo: raw.repo && raw.repo.name || '',
+      actor: raw.actor && raw.actor.login || '',
+      createdAt: raw.created_at || null,
+      public: !!raw.public,
+      payloadSummary: summary.trim(),
+    };
+  }
+
+  // ── exposed methods ──────────────────────────────────────────
+  iappyx.plugin.export({
+
+    isConfigured: function () {
+      return ok({ configured: !!token() });
+    },
+
+    profile: function () {
+      return authedGet('/user').then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status));
+        var b = r.body || {};
+        // Cache login for use in search-API "@me" filters that don't
+        // resolve server-side.
+        if (b.login) iappyx.secureStore.set('login', b.login);
+        return ok({
+          login: b.login || '',
+          name: b.name || '',
+          email: b.email || '',
+          avatarUrl: b.avatar_url || '',
+          publicRepos: b.public_repos || 0,
+          publicGists: b.public_gists || 0,
+          followers: b.followers || 0,
+          following: b.following || 0,
+          htmlUrl: b.html_url || '',
+          createdAt: b.created_at || null,
+          twoFactorEnabled: b.two_factor_authentication,
+        });
+      });
+    },
+
+    notifications: function (args) {
+      var all = !!(args && args.all);
+      var participating = !!(args && args.participating);
+      var top = Math.max(1, Math.min(50, (args && args.top) || 25));
+      var qs = '?per_page=' + top
+        + '&all=' + all
+        + '&participating=' + participating;
+      return authedGet('/notifications' + qs).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status));
+        var items = (r.body || []).map(asNotification).filter(Boolean);
+        return ok({ items: items });
+      });
+    },
+
+    pullRequestsToReview: function (args) {
+      var top = Math.max(1, Math.min(50, (args && args.top) || 25));
+      // Search API: PRs requesting our review, sorted by updated.
+      var q = 'is:pr is:open review-requested:@me';
+      return authedGet('/search/issues?q=' + encodeURIComponent(q)
+        + '&sort=updated&order=desc&per_page=' + top).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status));
+        var items = ((r.body && r.body.items) || []).map(asPullRequest).filter(Boolean);
+        return ok({ items: items, totalCount: (r.body && r.body.total_count) || items.length });
+      });
+    },
+
+    pullRequestsCreated: function (args) {
+      var state = (args && args.state) || 'open';
+      var top = Math.max(1, Math.min(50, (args && args.top) || 25));
+      var q = 'is:pr author:@me state:' + state;
+      return authedGet('/search/issues?q=' + encodeURIComponent(q)
+        + '&sort=updated&order=desc&per_page=' + top).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status));
+        var items = ((r.body && r.body.items) || []).map(asPullRequest).filter(Boolean);
+        return ok({ items: items, totalCount: (r.body && r.body.total_count) || items.length });
+      });
+    },
+
+    issuesAssigned: function (args) {
+      var state = (args && args.state) || 'open';
+      var top = Math.max(1, Math.min(50, (args && args.top) || 25));
+      // /issues — Issues assigned to the authenticated user across all
+      // accessible repos. state can be open, closed, all.
+      var qs = '?state=' + encodeURIComponent(state)
+        + '&filter=assigned'
+        + '&per_page=' + top
+        + '&sort=updated&direction=desc';
+      return authedGet('/issues' + qs).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status));
+        var items = (r.body || []).map(asIssue).filter(function (i) {
+          return i && !i.isPullRequest;  // /issues includes PRs by default
+        });
+        return ok({ items: items });
+      });
+    },
+
+    starredRepos: function (args) {
+      var top = Math.max(1, Math.min(100, (args && args.top) || 25));
+      return authedGet('/user/starred?per_page=' + top + '&sort=created')
+        .then(function (r) {
+          if (r.error) return err(r.error);
+          if (r.status >= 400) return err(statusErr(r.status));
+          var items = (r.body || []).map(asRepoSummary).filter(Boolean);
+          return ok({ items: items });
+        });
+    },
+
+    recentEvents: function (args) {
+      var top = Math.max(1, Math.min(100, (args && args.top) || 25));
+      var login = userLogin();
+      if (!login) {
+        // Resolve once via /user and cache.
+        return authedGet('/user').then(function (rr) {
+          var u = rr.body && rr.body.login;
+          if (!u) return err('couldn\'t resolve login');
+          iappyx.secureStore.set('login', u);
+          return authedGet('/users/' + encodeURIComponent(u) + '/events?per_page=' + top)
+            .then(handleEvents);
+        });
+      }
+      return authedGet('/users/' + encodeURIComponent(login) + '/events?per_page=' + top)
+        .then(handleEvents);
+
+      function handleEvents(r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status));
+        var items = (r.body || []).map(asEvent).filter(Boolean);
+        return ok({ items: items });
+      }
+    },
+
+    repoInfo: function (args) {
+      var owner = args && args.owner;
+      var repo  = args && args.repo;
+      if (!owner || !repo) return Promise.resolve(err('owner and repo required'));
+      var path = '/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo);
+      return Promise.all([
+        authedGet(path),
+        authedGet(path + '/releases/latest'),
+      ]).then(function (rs) {
+        var rr = rs[0], lr = rs[1];
+        if (rr.error) return err(rr.error);
+        if (rr.status >= 400) return err(statusErr(rr.status));
+        var summary = asRepoSummary(rr.body);
+        var latest = (lr.status === 200 && lr.body) ? {
+          tagName: lr.body.tag_name,
+          name: lr.body.name,
+          publishedAt: lr.body.published_at,
+          htmlUrl: lr.body.html_url,
+          body: lr.body.body || '',
+        } : null;
+        return ok({ repo: summary, latestRelease: latest });
+      });
+    },
+
+    repoTraffic: function (args) {
+      var owner = args && args.owner;
+      var repo  = args && args.repo;
+      if (!owner || !repo) return Promise.resolve(err('owner and repo required'));
+      var path = '/repos/' + encodeURIComponent(owner) + '/' + encodeURIComponent(repo);
+      return Promise.all([
+        authedGet(path + '/traffic/views'),
+        authedGet(path + '/traffic/clones'),
+      ]).then(function (rs) {
+        // Traffic endpoints require push permission. Surface a clean
+        // {ok:false} so widgets can render "permission required".
+        if (rs[0].status === 403 || rs[1].status === 403) {
+          return err('repo traffic requires push permission');
+        }
+        if (rs[0].error || rs[1].error) {
+          return err(rs[0].error || rs[1].error);
+        }
+        return ok({
+          views: rs[0].body || { count: 0, uniques: 0, days: [] },
+          clones: rs[1].body || { count: 0, uniques: 0, days: [] },
+        });
+      });
+    },
+
+    search: function (args) {
+      var type = (args && args.type) || 'repositories';
+      var q = args && args.q;
+      var top = Math.max(1, Math.min(50, (args && args.top) || 25));
+      if (!q) return Promise.resolve(err('q required'));
+      var allowed = { repositories: 1, issues: 1, commits: 1, code: 1, users: 1 };
+      if (!allowed[type]) return Promise.resolve(err('unknown search type'));
+      var headers = { 'Accept': 'application/vnd.github+json' };
+      // /search/commits needs the cloak preview header.
+      if (type === 'commits') headers['Accept'] = 'application/vnd.github.cloak-preview+json';
+      var t = token();
+      if (!t) return Promise.resolve(err('not configured'));
+      return iappyx.httpClient.fetch({
+        url: API_BASE + '/search/' + type + '?q=' + encodeURIComponent(q) + '&per_page=' + top,
+        method: 'GET',
+        headers: Object.assign({
+          'Authorization': 'Bearer ' + t,
+          'X-GitHub-Api-Version': '2022-11-28',
+        }, headers),
+      }).then(function (r) {
+        var parsed = null;
+        try { parsed = r.body ? JSON.parse(r.body) : null; } catch (_) {}
+        if (r.status >= 400) return err(statusErr(r.status));
+        var items = (parsed && parsed.items) || [];
+        var normalized;
+        if (type === 'repositories') normalized = items.map(asRepoSummary);
+        else if (type === 'issues') normalized = items.map(function (i) {
+          return i.pull_request ? asPullRequest(i) : asIssue(i);
+        });
+        else normalized = items;  // commits, code, users — return raw
+        return ok({
+          type: type,
+          items: normalized.filter(Boolean),
+          totalCount: (parsed && parsed.total_count) || 0,
+        });
+      });
+    },
+  });
+
+  iappyx.plugin.log('github plugin loaded');
+})();
+</script>
+</body>
+</html>

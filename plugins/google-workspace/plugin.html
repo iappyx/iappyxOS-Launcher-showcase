@@ -1,0 +1,523 @@
+<!doctype html>
+<!--
+  Google Workspace plugin — runtime.
+
+  OAuth model: device-flow against https://oauth2.googleapis.com/device/code,
+  driven from settings.html. The plugin uses the resulting refresh_token to
+  mint short-lived access tokens on demand. Google's device flow does
+  require a client_secret at token exchange, but for the "Desktop app"
+  OAuth client type that secret is distributed with the client — public
+  in practice, same trust level as Microsoft's "Allow public client
+  flows" model.
+
+  Storage:
+    secureStore:  clientId, clientSecret, refreshToken, scope
+    storage:      accessToken cache (expires in ~1h)
+
+  Surface — see manifest.aiPrompt for the full list.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Google Workspace plugin</title>
+</head>
+<body>
+<script>
+(function () {
+  'use strict';
+
+  // Google uses several API hosts; helper picks the right one per path.
+  var TOKEN_URL  = 'https://oauth2.googleapis.com/token';
+  var EXPIRY_BUFFER_MS = 60 * 1000;
+  var DEFAULT_SCOPE = [
+    'openid', 'email', 'profile',
+    'https://www.googleapis.com/auth/gmail.readonly',
+    'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/tasks.readonly',
+    'https://www.googleapis.com/auth/spreadsheets.readonly',
+  ].join(' ');
+
+  function ok(extra)    { return Object.assign({ ok: true }, extra || {}); }
+  function err(message) { return { ok: false, error: message }; }
+
+  function creds() {
+    return {
+      clientId:     iappyx.secureStore.get('clientId')     || '',
+      clientSecret: iappyx.secureStore.get('clientSecret') || '',
+      refreshToken: iappyx.secureStore.get('refreshToken') || '',
+      scope:        iappyx.secureStore.get('scope')        || DEFAULT_SCOPE,
+    };
+  }
+
+  // ── access-token cache ────────────────────────────────────────
+  function readCachedToken() {
+    try {
+      var raw = iappyx.storage.load('access');
+      if (!raw) return null;
+      var p = JSON.parse(raw);
+      if (!p || !p.token || !p.expiresAt) return null;
+      if (Date.now() + EXPIRY_BUFFER_MS >= p.expiresAt) return null;
+      return p.token;
+    } catch (_) { return null; }
+  }
+  function writeCachedToken(token, expiresInSec) {
+    try {
+      iappyx.storage.save('access', JSON.stringify({
+        token: token, expiresAt: Date.now() + (expiresInSec * 1000),
+      }));
+    } catch (_) {}
+  }
+  function clearCachedToken() { try { iappyx.storage.remove('access'); } catch (_) {} }
+
+  function refreshAccessToken() {
+    var c = creds();
+    if (!c.clientId || !c.refreshToken) {
+      return Promise.resolve({ token: null, error: 'not configured' });
+    }
+    // Google requires client_secret even for "Desktop app" OAuth clients —
+    // the secret is distributed with the app, public-in-practice.
+    var body = 'grant_type=refresh_token'
+      + '&refresh_token=' + encodeURIComponent(c.refreshToken)
+      + '&client_id='     + encodeURIComponent(c.clientId)
+      + '&client_secret=' + encodeURIComponent(c.clientSecret);
+    return iappyx.httpClient.fetch({
+      url: TOKEN_URL, method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded',
+                 'Accept': 'application/json' },
+      body: body,
+    }).then(function (r) {
+      var parsed = {};
+      try { parsed = JSON.parse(r.body) || {}; } catch (_) {}
+      if (r.status < 200 || r.status >= 300) {
+        var why = parsed.error_description || parsed.error
+          || ('refresh failed ' + r.status);
+        if (parsed.error === 'invalid_grant') clearCachedToken();
+        return { token: null, error: why };
+      }
+      if (!parsed.access_token) return { token: null, error: 'no access_token in reply' };
+      writeCachedToken(parsed.access_token, parsed.expires_in || 3600);
+      // Google rarely rotates refresh tokens but it can happen; save if present.
+      if (parsed.refresh_token && parsed.refresh_token !== c.refreshToken) {
+        iappyx.secureStore.set('refreshToken', parsed.refresh_token);
+      }
+      return { token: parsed.access_token, error: null };
+    });
+  }
+
+  function getAccessToken() {
+    var cached = readCachedToken();
+    if (cached) return Promise.resolve({ token: cached, error: null });
+    return refreshAccessToken();
+  }
+
+  function authedGet(url) {
+    return getAccessToken().then(function (a) {
+      if (a.error) return { status: 0, body: null, error: a.error };
+      return iappyx.httpClient.fetch({
+        url: url, method: 'GET',
+        headers: { 'Authorization': 'Bearer ' + a.token, 'Accept': 'application/json' },
+      }).then(function (r) {
+        var parsed = null;
+        try { parsed = r.body ? JSON.parse(r.body) : null; } catch (_) {}
+        return { status: r.status, body: parsed, raw: r.body };
+      });
+    });
+  }
+
+  function statusErr(status) {
+    if (status === 401) { clearCachedToken(); return 'access token rejected'; }
+    if (status === 403) return 'permission denied (scope missing or quota exceeded)';
+    if (status === 404) return 'not found';
+    if (status === 429) return 'rate limited — retry shortly';
+    return 'server error ' + status;
+  }
+
+  // ── shape adapters ───────────────────────────────────────────
+  function asMessage(raw, full) {
+    if (!raw) return null;
+    // Gmail returns metadata in headers[]; pull the ones we need.
+    var headers = (full && full.payload && full.payload.headers) || [];
+    function header(name) {
+      var h = headers.find(function (x) { return x.name.toLowerCase() === name.toLowerCase(); });
+      return h ? h.value : '';
+    }
+    var from = header('From');
+    // From is like '"Name" <email@addr>' — split out name + email.
+    var fromName = '', fromEmail = '';
+    var m = from.match(/^\s*"?([^"<]+?)"?\s*<([^>]+)>\s*$/);
+    if (m) { fromName = m[1].trim(); fromEmail = m[2].trim(); }
+    else { fromEmail = from.trim(); }
+    var labels = full && full.labelIds || [];
+    return {
+      id: raw.id || (full && full.id),
+      threadId: raw.threadId || (full && full.threadId),
+      from: fromName || fromEmail,
+      fromName: fromName,
+      fromEmail: fromEmail,
+      subject: header('Subject'),
+      snippet: (full && full.snippet) || '',
+      internalDate: (full && full.internalDate)
+        ? new Date(parseInt(full.internalDate, 10)).toISOString() : null,
+      hasAttachment: labels.indexOf('HAS_ATTACHMENT') !== -1
+        || /multipart\/mixed/.test((full && full.payload && full.payload.mimeType) || ''),
+      isUnread: labels.indexOf('UNREAD') !== -1,
+      isImportant: labels.indexOf('IMPORTANT') !== -1,
+      isStarred: labels.indexOf('STARRED') !== -1,
+      webLink: 'https://mail.google.com/mail/u/0/#inbox/' + (raw.id || (full && full.id)),
+    };
+  }
+
+  function asEvent(raw, calendar) {
+    if (!raw) return null;
+    var start = (raw.start && (raw.start.dateTime || raw.start.date)) || null;
+    var end   = (raw.end   && (raw.end.dateTime   || raw.end.date))   || null;
+    var isAllDay = !!(raw.start && raw.start.date && !raw.start.dateTime);
+    var org = raw.organizer || {};
+    var attendees = (raw.attendees || []).map(function (a) {
+      return { name: a.displayName || '', email: a.email || '', response: a.responseStatus || 'needsAction' };
+    });
+    // Google Meet / Hangouts join URL detection — multiple shapes over the
+    // years, normalize here.
+    var joinUrl = null;
+    if (raw.hangoutLink) joinUrl = raw.hangoutLink;
+    else if (raw.conferenceData && raw.conferenceData.entryPoints) {
+      var video = raw.conferenceData.entryPoints.find(function (e) { return e.entryPointType === 'video'; });
+      if (video) joinUrl = video.uri;
+    }
+    return {
+      id: raw.id,
+      subject: raw.summary || '',
+      summary: raw.summary || '',  // alias, matches Google's name
+      description: raw.description || '',
+      start: start, end: end, isAllDay: isAllDay,
+      location: raw.location || '',
+      isOnline: !!joinUrl,
+      joinUrl: joinUrl,
+      organizerName: org.displayName || '',
+      organizerEmail: org.email || '',
+      attendees: attendees,
+      webLink: raw.htmlLink || null,
+      calendarId: calendar ? calendar.id : null,
+      calendarName: calendar ? (calendar.summary || '') : null,
+      calendarColor: calendar ? (calendar.backgroundColor || null) : null,
+    };
+  }
+
+  function asCalendar(raw) {
+    if (!raw) return null;
+    return {
+      id: raw.id,
+      summary: raw.summary || '',
+      description: raw.description || '',
+      primary: !!raw.primary,
+      accessRole: raw.accessRole || 'reader',
+      color: raw.colorId || null,
+      hexColor: raw.backgroundColor || null,
+      timeZone: raw.timeZone || 'UTC',
+      selected: raw.selected !== false,
+    };
+  }
+
+  function asDriveFile(raw) {
+    if (!raw) return null;
+    return {
+      id: raw.id, name: raw.name || '',
+      size: parseInt(raw.size || '0', 10),
+      modifiedAt: raw.modifiedTime || null,
+      createdAt: raw.createdTime || null,
+      webViewLink: raw.webViewLink || null,
+      downloadUrl: raw.webContentLink || null,
+      iconLink: raw.iconLink || null,
+      mimeType: raw.mimeType || '',
+      isFolder: raw.mimeType === 'application/vnd.google-apps.folder',
+      parentId: (raw.parents && raw.parents[0]) || null,
+      owner: (raw.owners && raw.owners[0] && raw.owners[0].displayName) || '',
+    };
+  }
+
+  function asTask(raw) {
+    if (!raw) return null;
+    return {
+      id: raw.id,
+      title: raw.title || '',
+      status: raw.status || 'needsAction',
+      dueAt: raw.due || null,
+      completedAt: raw.completed || null,
+      notes: raw.notes || '',
+      position: raw.position || '',
+      parent: raw.parent || null,
+      updatedAt: raw.updated || null,
+    };
+  }
+
+  function asTaskList(raw) {
+    if (!raw) return null;
+    return { id: raw.id, title: raw.title || '', updatedAt: raw.updated || null };
+  }
+
+  // ── exposed methods ──────────────────────────────────────────
+  iappyx.plugin.export({
+
+    isConfigured: function () {
+      var c = creds();
+      return ok({ configured: !!(c.clientId && c.clientSecret && c.refreshToken) });
+    },
+
+    profile: function () {
+      return authedGet('https://www.googleapis.com/oauth2/v2/userinfo').then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status));
+        var b = r.body || {};
+        return ok({
+          email: b.email || '',
+          name: b.name || '',
+          picture: b.picture || '',
+          verifiedEmail: !!b.verified_email,
+        });
+      });
+    },
+
+    mailUnread: function (args) {
+      var label = (args && args.label) || 'INBOX';
+      var top = Math.max(1, Math.min(50, (args && args.top) || 25));
+      // Two-step: list ids, then batch-get details for snippet + from + subject.
+      // Gmail's list endpoint returns minimal data; we need /messages/{id}.
+      var listUrl = 'https://gmail.googleapis.com/gmail/v1/users/me/messages'
+        + '?labelIds=' + encodeURIComponent(label)
+        + '&q=' + encodeURIComponent('is:unread')
+        + '&maxResults=' + top;
+      return authedGet(listUrl).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status));
+        var ids = ((r.body && r.body.messages) || []).map(function (m) { return m.id; });
+        if (ids.length === 0) return ok({ count: 0, items: [] });
+        // Fetch each message's metadata in parallel.
+        var ps = ids.map(function (id) {
+          return authedGet('https://gmail.googleapis.com/gmail/v1/users/me/messages/' + id
+            + '?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date');
+        });
+        return Promise.all(ps).then(function (rs) {
+          var items = rs.map(function (rr) {
+            return (rr.status >= 200 && rr.status < 300) ? asMessage({}, rr.body) : null;
+          }).filter(Boolean);
+          return ok({ count: items.length, items: items });
+        });
+      });
+    },
+
+    mailLabels: function () {
+      return authedGet('https://gmail.googleapis.com/gmail/v1/users/me/labels').then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status));
+        var labels = ((r.body && r.body.labels) || []).map(function (l) {
+          return {
+            id: l.id, name: l.name || '', type: l.type || 'user',
+            messagesTotal: l.messagesTotal || 0, messagesUnread: l.messagesUnread || 0,
+          };
+        });
+        return ok({ labels: labels });
+      });
+    },
+
+    calendars: function () {
+      return authedGet('https://www.googleapis.com/calendar/v3/users/me/calendarList')
+        .then(function (r) {
+          if (r.error) return err(r.error);
+          if (r.status >= 400) return err(statusErr(r.status));
+          var calendars = ((r.body && r.body.items) || []).map(asCalendar).filter(Boolean);
+          return ok({ calendars: calendars });
+        });
+    },
+
+    calendarNext: function (args) {
+      var hours = Math.max(1, Math.min(24 * 14, (args && args.hours) || 24));
+      var top = Math.max(1, Math.min(100, (args && args.top) || 10));
+      var calendarId = (args && args.calendarId) || 'primary';
+      var now = new Date();
+      var to  = new Date(now.getTime() + hours * 3600 * 1000);
+      return fetchEvents(calendarId, now.toISOString(), to.toISOString(), top);
+    },
+
+    calendarToday: function (args) {
+      var now = new Date();
+      var start = new Date(now); start.setHours(0,0,0,0);
+      var end   = new Date(now); end.setHours(23,59,59,999);
+      var calendarId = (args && args.calendarId) || 'primary';
+      return fetchEvents(calendarId, start.toISOString(), end.toISOString(), 100);
+    },
+
+    calendarRange: function (args) {
+      var from = (args && args.from) || null;
+      var to   = (args && args.to)   || null;
+      if (!from || !to) return Promise.resolve(err('from and to required (ISO 8601)'));
+      var calendarId = (args && args.calendarId) || 'primary';
+      return fetchEvents(calendarId, from, to, 100);
+    },
+
+    /** Merged "next events anywhere" view across every accessible calendar.
+     *  Google doesn't have a $batch like Microsoft Graph — we run the
+     *  calendar list requests in parallel via Promise.all and merge
+     *  client-side. Same shape as the M365 plugin's calendarAllNext. */
+    calendarAllNext: function (args) {
+      var hours = Math.max(1, Math.min(24 * 14, (args && args.hours) || 24));
+      var top = Math.max(1, Math.min(100, (args && args.top) || 10));
+      var now = new Date();
+      var to  = new Date(now.getTime() + hours * 3600 * 1000);
+      var startIso = now.toISOString();
+      var endIso = to.toISOString();
+      return authedGet('https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=50')
+        .then(function (cr) {
+          if (cr.error) return err(cr.error);
+          if (cr.status >= 400) return err(statusErr(cr.status));
+          var calendars = ((cr.body && cr.body.items) || []).filter(function (c) {
+            return c.selected !== false;
+          });
+          if (calendars.length === 0) return ok({ events: [] });
+          // Fan-out in parallel. Cap at 25 to be polite to quota.
+          var subset = calendars.slice(0, 25);
+          var ps = subset.map(function (cal) {
+            var url = 'https://www.googleapis.com/calendar/v3/calendars/'
+              + encodeURIComponent(cal.id) + '/events'
+              + '?singleEvents=true'
+              + '&orderBy=startTime'
+              + '&timeMin=' + encodeURIComponent(startIso)
+              + '&timeMax=' + encodeURIComponent(endIso)
+              + '&maxResults=' + top;
+            return authedGet(url).then(function (r) {
+              return { cal: cal, body: r.body, status: r.status };
+            });
+          });
+          return Promise.all(ps).then(function (rs) {
+            var merged = [];
+            rs.forEach(function (rr) {
+              if (rr.status < 200 || rr.status >= 300) return;
+              var c = rr.cal;
+              var calMeta = asCalendar(c);
+              var events = (rr.body && rr.body.items) || [];
+              events.forEach(function (e) {
+                var tagged = asEvent(e, c);
+                if (tagged) merged.push(tagged);
+              });
+            });
+            merged.sort(function (x, y) {
+              return (x.start || '').localeCompare(y.start || '');
+            });
+            if (merged.length > top) merged = merged.slice(0, top);
+            return ok({ events: merged, calendarsQueried: subset.length });
+          });
+        });
+    },
+
+    driveRecent: function (args) {
+      var top = Math.max(1, Math.min(50, (args && args.top) || 25));
+      var url = 'https://www.googleapis.com/drive/v3/files'
+        + '?orderBy=modifiedTime desc'
+        + '&pageSize=' + top
+        + '&fields=files(id,name,size,modifiedTime,createdTime,webViewLink,webContentLink,iconLink,mimeType,parents,owners(displayName))';
+      return authedGet(url).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status));
+        var items = ((r.body && r.body.files) || []).map(asDriveFile).filter(Boolean);
+        return ok({ items: items });
+      });
+    },
+
+    driveSearch: function (args) {
+      var q = (args && args.query) || '';
+      if (!q) return Promise.resolve(err('query required'));
+      var top = Math.max(1, Math.min(50, (args && args.top) || 25));
+      var url = 'https://www.googleapis.com/drive/v3/files'
+        + '?q=' + encodeURIComponent("name contains '" + q.replace(/'/g, "\\'") + "' and trashed=false")
+        + '&pageSize=' + top
+        + '&fields=files(id,name,size,modifiedTime,createdTime,webViewLink,webContentLink,iconLink,mimeType,parents,owners(displayName))';
+      return authedGet(url).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status));
+        var items = ((r.body && r.body.files) || []).map(asDriveFile).filter(Boolean);
+        return ok({ items: items });
+      });
+    },
+
+    taskLists: function () {
+      return authedGet('https://tasks.googleapis.com/tasks/v1/users/@me/lists?maxResults=100')
+        .then(function (r) {
+          if (r.error) return err(r.error);
+          if (r.status >= 400) return err(statusErr(r.status));
+          var lists = ((r.body && r.body.items) || []).map(asTaskList).filter(Boolean);
+          return ok({ lists: lists });
+        });
+    },
+
+    tasks: function (args) {
+      var listId = args && args.listId;
+      if (!listId) return Promise.resolve(err('listId required'));
+      var top = Math.max(1, Math.min(100, (args && args.top) || 50));
+      var showCompleted = !!(args && args.showCompleted);
+      var url = 'https://tasks.googleapis.com/tasks/v1/lists/' + encodeURIComponent(listId) + '/tasks'
+        + '?maxResults=' + top
+        + '&showCompleted=' + (showCompleted ? 'true' : 'false')
+        + '&showHidden=false';
+      return authedGet(url).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status));
+        var tasks = ((r.body && r.body.items) || []).map(asTask).filter(Boolean);
+        return ok({ tasks: tasks });
+      });
+    },
+
+    /** Read a range from a Google Sheets file. Killer feature — lets any
+     *  widget become a custom dashboard by reading cells the user edits
+     *  in their spreadsheet. Mirrors M365's excelRange. */
+    sheetsRange: function (args) {
+      var fileId = args && args.fileId;
+      var sheet  = args && args.sheet;
+      var range  = args && args.range;
+      if (!fileId || !range) return Promise.resolve(err('fileId and range required'));
+      var rangeQuery = sheet ? (encodeURIComponent(sheet) + '!' + encodeURIComponent(range))
+                              : encodeURIComponent(range);
+      var url = 'https://sheets.googleapis.com/v4/spreadsheets/'
+        + encodeURIComponent(fileId)
+        + '/values/' + rangeQuery
+        + '?valueRenderOption=FORMATTED_VALUE'
+        + '&dateTimeRenderOption=FORMATTED_STRING';
+      return authedGet(url).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status));
+        var b = r.body || {};
+        var values = b.values || [];
+        return ok({
+          values: values,
+          rows: values.length,
+          columns: values.reduce(function (m, row) {
+            return Math.max(m, row.length);
+          }, 0),
+          range: b.range || range,
+        });
+      });
+    },
+  });
+
+  function fetchEvents(calendarId, fromIso, toIso, top) {
+    var url = 'https://www.googleapis.com/calendar/v3/calendars/'
+      + encodeURIComponent(calendarId) + '/events'
+      + '?singleEvents=true'
+      + '&orderBy=startTime'
+      + '&timeMin=' + encodeURIComponent(fromIso)
+      + '&timeMax=' + encodeURIComponent(toIso)
+      + '&maxResults=' + top;
+    return authedGet(url).then(function (r) {
+      if (r.error) return err(r.error);
+      if (r.status >= 400) return err(statusErr(r.status));
+      var events = ((r.body && r.body.items) || []).map(function (e) {
+        return asEvent(e, null);
+      }).filter(Boolean);
+      return ok({ events: events });
+    });
+  }
+
+  iappyx.plugin.log('google-workspace plugin loaded');
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+{
+  "id": "google-workspace",
+  "name": "Google Workspace",
+  "description": "Surface Gmail, Calendar (including shared calendars), Drive, Tasks, and Sheets ranges in widgets and wallpapers via the Google APIs. Client ID + client_secret + refresh token from a one-time device-flow are stored encrypted; widgets call iappyx.plugin('google-workspace').* without seeing them.",
+  "version": "1.0.0",
+  "author": "iappyx",
+  "minLauncher": 1,
+  "background": false,
+  "capabilities": ["http", "secureStore", "storage"],
+  "settingsUi": "settings.html",
+  "exposes": [
+    { "name": "isConfigured",     "args": {} },
+    { "name": "profile",          "args": {} },
+    { "name": "mailUnread",       "args": { "label": "string", "top": "int" } },
+    { "name": "mailLabels",       "args": {} },
+    { "name": "calendars",        "args": {} },
+    { "name": "calendarNext",     "args": { "hours": "int", "top": "int", "calendarId": "string" } },
+    { "name": "calendarToday",    "args": { "calendarId": "string" } },
+    { "name": "calendarRange",    "args": { "from": "string", "to": "string", "calendarId": "string" } },
+    { "name": "calendarAllNext",  "args": { "hours": "int", "top": "int" } },
+    { "name": "driveRecent",      "args": { "top": "int" } },
+    { "name": "driveSearch",      "args": { "query": "string", "top": "int" } },
+    { "name": "taskLists",        "args": {} },
+    { "name": "tasks",            "args": { "listId": "string", "top": "int", "showCompleted": "bool" } },
+    { "name": "sheetsRange",      "args": { "fileId": "string", "sheet": "string", "range": "string" } }
+  ],
+  "aiPrompt": "iappyx.plugin('google-workspace') wraps Google APIs (Gmail, Calendar, Drive, Tasks, Sheets) for the user's Google account. User configures Client ID + Client Secret + refresh token via Settings → Plugins → Google Workspace → Configure (one-time device-flow). Plugin auto-refreshes access tokens. All methods return Promises; check {ok}. KEY METHODS — profile() → {ok, email, name, picture}. mailUnread({label:'INBOX', top:25}) → {ok, count, items:[{id, threadId, from, subject, snippet, internalDate:ISO, hasAttachment, isUnread, isImportant, isStarred, webLink}]}. mailLabels() → {ok, labels:[{id, name, type, messagesTotal, messagesUnread}]}. CALENDAR (shared-aware) — calendars() → {ok, calendars:[{id, summary, description, primary, accessRole:'owner'|'writer'|'reader'|'freeBusyReader', color, hexColor, timeZone, selected}]}. calendarNext({hours:24, top:10, calendarId?}) → {ok, events:[{id, summary, start:ISO, end:ISO, location, isAllDay, isOnline, joinUrl, organizerName, organizerEmail, attendees:[{name, email, response}], webLink}]} — without calendarId targets the user's primary calendar; with one targets that specific calendar. calendarToday({calendarId?}) and calendarRange({from:ISO, to:ISO, calendarId?}) shortcuts. calendarAllNext({hours:24, top:10}) → MERGED across every accessible calendar (primary + shared + subscribed) using parallel calls; events tagged with calendarId/calendarName/calendarColor. Use this for 'next meeting anywhere' widgets. DRIVE — driveRecent({top:25}) and driveSearch({query, top:25}) → {ok, items:[{id, name, size, modifiedAt:ISO, webViewLink, downloadUrl, iconLink, mimeType, isFolder, parentId, owner}]}. THE KILLER FEATURE — sheetsRange({fileId:'1abcXYZ...', sheet:'Sheet1', range:'A1:D20'}) → {ok, values:[[row]…], rows, columns, range}. Read any range from a Google Sheets file: user types data in their spreadsheet, widget reads cells, renders whatever. Use aggressively for personal dashboards, KPI cards, project trackers, fitness logs — anything tabular the user can edit easily. TASKS — taskLists() → {ok, lists:[{id, title, updatedAt:ISO}]}. tasks({listId, top:50, showCompleted:false}) → {ok, tasks:[{id, title, status:'needsAction'|'completed', dueAt:ISO|null, completedAt:ISO|null, notes, position, parent}]}. All replies follow {ok:true, …} or {ok:false, error:'…'} — never throw. Best widgets: 'next meeting' card (calendarAllNext for shared visibility), unread inbox with sender previews, today's tasks checklist, Sheets-driven KPI tiles, Drive-search-as-launcher. Best wallpapers: ambient mode keyed off calendarAllNext({hours:1}), photo wallpaper rotating through driveSearch('mimeType:image/jpeg')."
+}
