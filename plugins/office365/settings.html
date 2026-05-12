@@ -80,9 +80,15 @@
       <li>Open <a href="https://portal.azure.com" target="_blank">portal.azure.com</a> → <strong>App registrations</strong> → <strong>New registration</strong>. (Free, works with any Microsoft account — no Azure subscription needed.)</li>
       <li>Name: anything (e.g. "iappyxOS Launcher"). <strong>Supported account types:</strong> "Accounts in any organizational directory and personal Microsoft accounts". <strong>Leave the redirect URI blank</strong> — device-code flow doesn't use one.</li>
       <li>Once created, copy the <strong>Application (client) ID</strong> from the Overview page and paste it below.</li>
-      <li>Go to <strong>Authentication</strong> → set <strong>"Allow public client flows"</strong> to <strong>Yes</strong>. Save. (No platforms to configure.)</li>
-      <li>Go to <strong>API permissions</strong> → Add → Microsoft Graph → <strong>Delegated</strong>. Add: <code>offline_access</code>, <code>User.Read</code>, <code>Mail.Read</code>, <code>Calendars.Read</code>, <code>Tasks.Read</code>, <code>Files.Read.All</code>, <code>Notes.Read.All</code>. Personal-account-only — no admin consent needed.</li>
+      <li>Go to <strong>Authentication</strong> → <strong>Add a platform</strong> → <strong>Mobile and desktop applications</strong>. Tick <code>https://login.microsoftonline.com/common/oauth2/nativeclient</code> (or <code>http://localhost</code> — device-code flow never uses the URI, but Azure requires the Mobile/desktop platform to mark the app as a public client). <strong>Configure</strong> → Save.</li>
+      <li>Still on Authentication → set <strong>"Allow public client flows"</strong> to <strong>Yes</strong> at the bottom. Save.</li>
+      <li>Go to <strong>API permissions</strong> → Add → Microsoft Graph → <strong>Delegated</strong>. Add: <code>offline_access</code>, <code>User.Read</code>, <code>Mail.Read</code>, <code>Calendars.Read</code>, <code>Calendars.Read.Shared</code>, <code>Tasks.Read</code>, <code>Files.Read.All</code>, <code>Notes.Read.All</code>. Personal-account-only — no admin consent needed.</li>
     </ol>
+    <p class="hint" style="margin-top:10px">
+      <strong>If Connect fails with <code>AADSTS70002: client not supported for this feature</code></strong>:
+      step 4 is missing — the Mobile-and-desktop platform was never added. Re-check Authentication
+      → Platform configurations.
+    </p>
     <p class="hint" style="margin-top:10px">
       That's all. After this, every <em>Connect Microsoft account</em> click below opens a Microsoft sign-in page — no code-copying, no curl, no client secret.
     </p>
@@ -135,6 +141,7 @@
   'use strict';
 
   var SCOPE = 'offline_access User.Read Mail.Read Calendars.Read '
+            + 'Calendars.Read.Shared '
             + 'Tasks.Read Files.Read.All Notes.Read.All';
   var DEVICECODE_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/devicecode';
   var TOKEN_URL      = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';

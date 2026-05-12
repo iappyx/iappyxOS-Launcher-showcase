@@ -38,7 +38,10 @@
   // round-trip on the call that triggers refresh.
   var EXPIRY_BUFFER_MS = 60 * 1000;
   // Default scope. Mirrors what settings.html asks the user to authorise.
+  // Calendars.Read.Shared is what unlocks shared calendars (colleagues',
+  // team calendars, room calendars) on top of the user's own.
   var DEFAULT_SCOPE = 'offline_access User.Read Mail.Read Calendars.Read '
+                    + 'Calendars.Read.Shared '
                     + 'Tasks.Read Files.Read.All Notes.Read.All';
 
   function ok(extra)    { return Object.assign({ ok: true }, extra || {}); }
@@ -246,6 +249,23 @@
     };
   }
 
+  function asCalendar(raw) {
+    if (!raw) return null;
+    var owner = raw.owner || {};
+    return {
+      id: raw.id,
+      name: raw.name || '',
+      ownerName: owner.name || '',
+      ownerEmail: owner.address || '',
+      isDefault: !!raw.isDefaultCalendar,
+      canShare: !!raw.canShare,
+      canEdit: !!raw.canEdit,
+      canViewPrivateItems: !!raw.canViewPrivateItems,
+      color: raw.color || 'auto',
+      hexColor: raw.hexColor || null,
+    };
+  }
+
   function asOneNotePage(raw) {
     if (!raw) return null;
     var section = raw.parentSection || {};
@@ -325,13 +345,22 @@
     /** Calendar view of upcoming events. Uses /calendarView so recurring
      *  events expand into individual instances — that's almost always
      *  what a widget wants ("next thing happening"), not the master
-     *  recurring event. */
+     *  recurring event.
+     *
+     *  Without calendarId: primary calendar (back-compat behaviour).
+     *  With calendarId: that specific calendar (use calendars() to list).
+     *  For a merged view across every calendar the user has access to
+     *  (their own + shared), call calendarAllNext() instead. */
     calendarNext: function (args) {
       var hours = Math.max(1, Math.min(24 * 14, (args && args.hours) || 24));
       var top = Math.max(1, Math.min(100, (args && args.top) || 10));
+      var calendarId = args && args.calendarId;
       var now = new Date();
       var to  = new Date(now.getTime() + hours * 3600 * 1000);
-      var path = '/me/calendarView'
+      var basePath = calendarId
+        ? '/me/calendars/' + encodeURIComponent(calendarId) + '/calendarView'
+        : '/me/calendarView';
+      var path = basePath
         + '?startDateTime=' + encodeURIComponent(now.toISOString())
         + '&endDateTime='   + encodeURIComponent(to.toISOString())
         + '&$orderby=start/dateTime'
@@ -346,18 +375,119 @@
       });
     },
 
-    calendarToday: function () {
+    calendarToday: function (args) {
       var now = new Date();
       var start = new Date(now); start.setHours(0,0,0,0);
       var end   = new Date(now); end.setHours(23,59,59,999);
-      return calendarRangeImpl(start.toISOString(), end.toISOString());
+      return calendarRangeImpl(start.toISOString(), end.toISOString(),
+        args && args.calendarId);
     },
 
     calendarRange: function (args) {
       var from = (args && args.from) || null;
       var to   = (args && args.to)   || null;
       if (!from || !to) return Promise.resolve(err('from and to required (ISO 8601)'));
-      return calendarRangeImpl(from, to);
+      return calendarRangeImpl(from, to, args && args.calendarId);
+    },
+
+    /** List every calendar the user can read — their own primary + any
+     *  shared calendars (colleagues', team calendars, room calendars,
+     *  group calendars they're a member of). Pre-requisite: the user's
+     *  refresh token must include Calendars.Read.Shared (added in scope
+     *  defaults). If shared scope wasn't granted, shared calendars are
+     *  silently omitted by Graph — no error, just fewer results. */
+    calendars: function () {
+      var path = '/me/calendars?$top=100'
+        + '&$select=id,name,owner,isDefaultCalendar,canShare,canEdit,'
+        + 'canViewPrivateItems,color,hexColor';
+      return authedGet(path).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status, r.raw));
+        var calendars = ((r.body && r.body.value) || []).map(asCalendar).filter(Boolean);
+        return ok({ calendars: calendars });
+      });
+    },
+
+    /** Merged "next events anywhere" view across every accessible calendar.
+     *  Uses Graph's $batch endpoint to fan out queries in a single HTTP
+     *  round-trip (Graph parallelises server-side, limit ~20 per batch).
+     *  Returns events sorted by start time with a calendarId/calendarName
+     *  field added so widgets can colour-code or filter.
+     *
+     *  This is the widget you actually want for a home-screen "next
+     *  meeting" tile when the user has multiple shared calendars. */
+    calendarAllNext: function (args) {
+      var hours = Math.max(1, Math.min(24 * 14, (args && args.hours) || 24));
+      var top = Math.max(1, Math.min(100, (args && args.top) || 10));
+      var now = new Date();
+      var to  = new Date(now.getTime() + hours * 3600 * 1000);
+      var startIso = now.toISOString();
+      var endIso = to.toISOString();
+      // Step 1: enumerate calendars.
+      return authedGet('/me/calendars?$top=20&$select=id,name,owner,isDefaultCalendar,color,hexColor')
+        .then(function (cr) {
+          if (cr.error) return err(cr.error);
+          if (cr.status >= 400) return err(statusErr(cr.status, cr.raw));
+          var calendars = (cr.body && cr.body.value) || [];
+          if (calendars.length === 0) return ok({ events: [] });
+          // Step 2: build a $batch request — one calendarView per calendar.
+          var requests = calendars.map(function (cal, idx) {
+            return {
+              id: String(idx),
+              method: 'GET',
+              url: '/me/calendars/' + encodeURIComponent(cal.id)
+                + '/calendarView'
+                + '?startDateTime=' + encodeURIComponent(startIso)
+                + '&endDateTime='   + encodeURIComponent(endIso)
+                + '&$orderby=start/dateTime'
+                + '&$top=' + top
+                + '&$select=id,subject,start,end,location,isAllDay,'
+                + 'isOnlineMeeting,onlineMeeting,organizer,attendees,webLink',
+            };
+          });
+          return getAccessToken().then(function (a) {
+            if (a.error) return err(a.error);
+            return iappyx.httpClient.fetch({
+              url: GRAPH_BASE + '/$batch',
+              method: 'POST',
+              headers: {
+                'Authorization': 'Bearer ' + a.token,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+              },
+              body: JSON.stringify({ requests: requests }),
+            }).then(function (br) {
+              if (br.status === 401) { clearCachedToken(); return err('access token rejected'); }
+              if (br.status >= 400) return err('batch failed ' + br.status);
+              var parsed;
+              try { parsed = JSON.parse(br.body || '{}'); } catch (_) { parsed = {}; }
+              var responses = parsed.responses || [];
+              // Step 3: merge + tag each event with its source calendar.
+              var merged = [];
+              responses.forEach(function (resp) {
+                if (resp.status < 200 || resp.status >= 300) return;
+                var idx = parseInt(resp.id, 10);
+                var cal = calendars[idx] || {};
+                var events = (resp.body && resp.body.value) || [];
+                events.forEach(function (e) {
+                  var tagged = asEvent(e);
+                  if (!tagged) return;
+                  tagged.calendarId = cal.id;
+                  tagged.calendarName = cal.name || '';
+                  tagged.calendarColor = cal.hexColor || null;
+                  tagged.calendarOwner = (cal.owner && cal.owner.name) || '';
+                  merged.push(tagged);
+                });
+              });
+              // Step 4: chronological sort + apply top cap globally.
+              merged.sort(function (x, y) {
+                return (x.start || '').localeCompare(y.start || '');
+              });
+              if (merged.length > top) merged = merged.slice(0, top);
+              return ok({ events: merged, calendarsQueried: calendars.length });
+            });
+          });
+        });
     },
 
     todoLists: function () {
@@ -478,8 +608,11 @@
   });
 
   // Helper for calendarToday + calendarRange.
-  function calendarRangeImpl(fromIso, toIso) {
-    var path = '/me/calendarView'
+  function calendarRangeImpl(fromIso, toIso, calendarId) {
+    var basePath = calendarId
+      ? '/me/calendars/' + encodeURIComponent(calendarId) + '/calendarView'
+      : '/me/calendarView';
+    var path = basePath
       + '?startDateTime=' + encodeURIComponent(fromIso)
       + '&endDateTime='   + encodeURIComponent(toIso)
       + '&$orderby=start/dateTime'
