@@ -3,7 +3,7 @@
 <html lang="en"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
-<meta name="iappyx-widget" content="keepAlive">
+<meta name="iappyx-widget" content="pause">
 <title>Live GPS Map</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -314,7 +314,21 @@ window.onGpsError=function(r){
 
 function startWatching(){
   iappyx.location.watchPositionWithError('window.onGpsUpdate','window.onGpsError');
+  window.__gpsWatching = true;
 }
+function stopWatching(){
+  if (!window.__gpsWatching) return;
+  try { if (iappyx.location.stopWatching) iappyx.location.stopWatching(); } catch(_){}
+  window.__gpsWatching = false;
+}
+// Release the GPS listener when the widget cell is off-screen. The launcher's
+// `pause` policy halts our JS, but the Java-side LocationService keeps
+// streaming updates until we explicitly tell it to stop. Without this,
+// `pause` saves the WebView's CPU but the GPS subsystem keeps draining.
+document.addEventListener('visibilitychange', function(){
+  if (document.hidden) stopWatching();
+  else if (!window.__gpsWatching) startWatching();
+});
 
 // ─── Coords bar ──────────────────────────────────────────────────────────────
 function updateCoordsBar(lat,lon,acc){

@@ -1,0 +1,28 @@
+{
+  "id": "office365",
+  "name": "Microsoft 365",
+  "description": "Surface Outlook mail, Calendar, To Do, OneDrive, OneNote, and arbitrary Excel ranges in widgets and wallpapers via Microsoft Graph. Client ID + refresh token from a one-time OAuth flow are stored encrypted; widgets call iappyx.plugin('office365').* without seeing them.",
+  "version": "1.0.0",
+  "author": "iappyx",
+  "minLauncher": 1,
+  "background": false,
+  "capabilities": ["http", "secureStore", "storage"],
+  "settingsUi": "settings.html",
+  "exposes": [
+    { "name": "isConfigured",       "args": {} },
+    { "name": "profile",            "args": {} },
+    { "name": "mailUnread",         "args": { "folder": "string", "top": "int" } },
+    { "name": "mailFolders",        "args": {} },
+    { "name": "calendarNext",       "args": { "hours": "int", "top": "int" } },
+    { "name": "calendarToday",      "args": {} },
+    { "name": "calendarRange",      "args": { "from": "string", "to": "string" } },
+    { "name": "todoLists",          "args": {} },
+    { "name": "todoTasks",          "args": { "listId": "string", "top": "int", "includeCompleted": "bool" } },
+    { "name": "onedriveRecent",     "args": { "top": "int" } },
+    { "name": "onedriveSearch",     "args": { "query": "string", "top": "int" } },
+    { "name": "onedriveChildren",   "args": { "path": "string", "top": "int" } },
+    { "name": "excelRange",         "args": { "filePath": "string", "sheet": "string", "range": "string" } },
+    { "name": "onenoteRecent",      "args": { "top": "int" } }
+  ],
+  "aiPrompt": "iappyx.plugin('office365') wraps Microsoft Graph for the user's Microsoft 365 (work, school, or personal) account. User configures Client ID + refresh token via Settings → Plugins → Microsoft 365 → Configure (one-time OAuth dance using PKCE — no client secret). Plugin auto-refreshes access tokens. All methods return Promises; check {ok}. KEY METHODS — profile() → {ok, name, email, tenantType:'personal'|'work'}. mailUnread({folder:'Inbox', top:25}) → {ok, count, items:[{id, subject, fromName, fromEmail, preview, receivedAt:ISO, isRead, hasAttachments, importance:'low'|'normal'|'high', webLink}]}. mailFolders() → {ok, folders:[{id, name, unreadCount, totalCount}]}. calendarNext({hours:24, top:10}) → {ok, events:[{id, subject, start:ISO, end:ISO, location, isOnline:bool, joinUrl:'https://teams.microsoft.com/l/meetup-join/...'|null, organizerName, attendees:[{name, email, response:'accepted'|'declined'|'tentative'|'none'}], webLink}]}. calendarToday() shortcut for today's events. calendarRange({from:ISO, to:ISO}) for arbitrary windows. todoLists() → {ok, lists:[{id, name, isOwner, count?}]}. todoTasks({listId, top:50, includeCompleted:false}) → {ok, tasks:[{id, title, status:'notStarted'|'inProgress'|'completed', dueAt:ISO|null, completedAt:ISO|null, importance, body}]}. onedriveRecent({top:25}), onedriveSearch({query, top}), onedriveChildren({path:'/Documents', top}) → all return {ok, items:[{id, name, size, modifiedAt:ISO, webUrl, downloadUrl, mimeType, isFolder:bool, parentPath}]}. THE KILLER FEATURE — excelRange({filePath:'/Documents/budget.xlsx', sheet:'Sheet1', range:'A1:D20'}) → {ok, values:[[row]…], rows, columns, address, formattedValues:[[…]]}. This lets ANY widget become a custom dashboard: user types data in OneDrive Excel, widget reads cells, renders whatever. Use this aggressively for personal dashboards, KPI cards, project trackers — any tabular data the user can edit easily. onenoteRecent({top:25}) → {ok, pages:[{id, title, sectionName, notebookName, lastModifiedAt:ISO, webUrl}]}. All replies follow {ok:true, …} or {ok:false, error:'…'} — never throw. Best widgets: 'next meeting' card with one-tap teams join (event.joinUrl), unread inbox count with sender previews, today's tasks checklist, Excel-driven KPI tiles. Best wallpapers: subtle accent colour pulled from upcoming-event count, ambient 'do not disturb during meetings' mode keyed off calendarNext({hours:1})."
+}

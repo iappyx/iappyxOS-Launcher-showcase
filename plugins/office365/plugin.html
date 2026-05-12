@@ -1,0 +1,501 @@
+<!doctype html>
+<!--
+  Microsoft 365 plugin — runtime.
+
+  OAuth model: the user does a one-time Authorization-Code + PKCE flow in
+  a browser (cookbook in settings.html) and pastes the resulting
+  client_id + refresh_token into the plugin's settings. The plugin uses
+  the refresh token to mint short-lived access tokens on demand. Public
+  client + PKCE means no client secret needed.
+
+  Tenancy: token endpoint is /common so personal MS accounts (outlook.com,
+  hotmail.com, live.com) and work/school accounts both work. The user's
+  app registration must allow both — settings.html cookbook walks through
+  the "Accounts in any organizational directory and personal Microsoft
+  accounts" option.
+
+  Storage:
+    secureStore:  clientId, refreshToken, scope (the scope string the
+                  refresh-token was issued for)
+    storage:      accessToken, accessTokenExpiresAt (cache; we re-mint
+                  whenever we drift past it)
+
+  Surface — see manifest.aiPrompt for the full list.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Microsoft 365 plugin</title>
+</head>
+<body>
+<script>
+(function () {
+  'use strict';
+
+  var GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
+  var TOKEN_URL  = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+  // Refresh ~60s before declared expiry — covers clock skew + the network
+  // round-trip on the call that triggers refresh.
+  var EXPIRY_BUFFER_MS = 60 * 1000;
+  // Default scope. Mirrors what settings.html asks the user to authorise.
+  var DEFAULT_SCOPE = 'offline_access User.Read Mail.Read Calendars.Read '
+                    + 'Tasks.Read Files.Read.All Notes.Read.All';
+
+  function ok(extra)    { return Object.assign({ ok: true }, extra || {}); }
+  function err(message) { return { ok: false, error: message }; }
+
+  function creds() {
+    return {
+      clientId:     iappyx.secureStore.get('clientId')     || '',
+      refreshToken: iappyx.secureStore.get('refreshToken') || '',
+      scope:        iappyx.secureStore.get('scope')        || DEFAULT_SCOPE,
+    };
+  }
+
+  // ── access-token cache ────────────────────────────────────────
+  function readCachedToken() {
+    try {
+      var raw = iappyx.storage.load('access');
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      if (!parsed || !parsed.token || !parsed.expiresAt) return null;
+      if (Date.now() + EXPIRY_BUFFER_MS >= parsed.expiresAt) return null;
+      return parsed.token;
+    } catch (_) { return null; }
+  }
+  function writeCachedToken(token, expiresInSec) {
+    try {
+      iappyx.storage.save('access', JSON.stringify({
+        token: token,
+        expiresAt: Date.now() + (expiresInSec * 1000),
+      }));
+    } catch (_) {}
+  }
+  function clearCachedToken() {
+    try { iappyx.storage.remove('access'); } catch (_) {}
+  }
+
+  /** Exchange refresh_token for a fresh access_token. Microsoft's token
+   *  endpoint accepts x-www-form-urlencoded. invalid_grant means the
+   *  refresh token has been revoked / expired — surface so the user
+   *  re-authorises. */
+  function refreshAccessToken() {
+    var c = creds();
+    if (!c.clientId || !c.refreshToken) {
+      return Promise.resolve({ token: null, error: 'not configured' });
+    }
+    var body = 'grant_type=refresh_token'
+      + '&refresh_token=' + encodeURIComponent(c.refreshToken)
+      + '&client_id='     + encodeURIComponent(c.clientId)
+      + '&scope='         + encodeURIComponent(c.scope);
+    return iappyx.httpClient.fetch({
+      url: TOKEN_URL,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded',
+                 'Accept': 'application/json' },
+      body: body,
+    }).then(function (r) {
+      var parsed = {};
+      try { parsed = JSON.parse(r.body) || {}; } catch (_) {}
+      if (r.status < 200 || r.status >= 300) {
+        var why = parsed.error_description || parsed.error
+          || ('refresh failed ' + r.status);
+        if (parsed.error === 'invalid_grant') clearCachedToken();
+        return { token: null, error: why };
+      }
+      if (!parsed.access_token) return { token: null, error: 'no access_token in reply' };
+      writeCachedToken(parsed.access_token, parsed.expires_in || 3600);
+      // Microsoft rotates refresh tokens on every refresh — save the new
+      // one immediately or the next refresh will fail with invalid_grant.
+      if (parsed.refresh_token && parsed.refresh_token !== c.refreshToken) {
+        iappyx.secureStore.set('refreshToken', parsed.refresh_token);
+      }
+      return { token: parsed.access_token, error: null };
+    });
+  }
+
+  function getAccessToken() {
+    var cached = readCachedToken();
+    if (cached) return Promise.resolve({ token: cached, error: null });
+    return refreshAccessToken();
+  }
+
+  // ── HTTP helpers ──────────────────────────────────────────────
+  function authedGet(path) {
+    return getAccessToken().then(function (a) {
+      if (a.error) return { status: 0, body: null, error: a.error };
+      return iappyx.httpClient.fetch({
+        url: GRAPH_BASE + path,
+        method: 'GET',
+        headers: { 'Authorization': 'Bearer ' + a.token, 'Accept': 'application/json' },
+      }).then(function (r) {
+        var parsed = null;
+        try { parsed = r.body ? JSON.parse(r.body) : null; } catch (_) {}
+        return { status: r.status, body: parsed, raw: r.body };
+      });
+    });
+  }
+
+  /** Map Graph HTTP status codes to a clean error string. Used by every
+   *  surface method. 401 always means "the access token was rejected" —
+   *  we drop the cache so the next call refreshes. */
+  function statusErr(status, raw) {
+    if (status === 401) { clearCachedToken(); return 'access token rejected'; }
+    if (status === 403) return 'permission denied (scope or admin consent missing)';
+    if (status === 404) return 'not found';
+    if (status === 429) return 'rate limited — retry shortly';
+    return 'server error ' + status;
+  }
+
+  // ── shape adapters ───────────────────────────────────────────
+  function asMessage(raw) {
+    if (!raw) return null;
+    var from = raw.from && raw.from.emailAddress || {};
+    return {
+      id: raw.id,
+      subject: raw.subject || '',
+      fromName: from.name || '',
+      fromEmail: from.address || '',
+      preview: raw.bodyPreview || '',
+      receivedAt: raw.receivedDateTime || null,
+      isRead: !!raw.isRead,
+      hasAttachments: !!raw.hasAttachments,
+      importance: raw.importance || 'normal',
+      webLink: raw.webLink || null,
+    };
+  }
+
+  function asEvent(raw) {
+    if (!raw) return null;
+    var loc = raw.location || {};
+    var org = raw.organizer && raw.organizer.emailAddress || {};
+    var joinUrl = null;
+    if (raw.onlineMeeting && raw.onlineMeeting.joinUrl) {
+      joinUrl = raw.onlineMeeting.joinUrl;
+    } else if (raw.onlineMeetingUrl) {
+      joinUrl = raw.onlineMeetingUrl;
+    }
+    var attendees = (raw.attendees || []).map(function (a) {
+      var ea = (a.emailAddress) || {};
+      var status = (a.status && a.status.response) || 'none';
+      return { name: ea.name || '', email: ea.address || '', response: status };
+    });
+    return {
+      id: raw.id,
+      subject: raw.subject || '',
+      start: raw.start && raw.start.dateTime ? raw.start.dateTime + 'Z' : null,
+      end:   raw.end   && raw.end.dateTime   ? raw.end.dateTime   + 'Z' : null,
+      timeZone: (raw.start && raw.start.timeZone) || 'UTC',
+      location: loc.displayName || '',
+      isOnline: !!raw.isOnlineMeeting,
+      joinUrl: joinUrl,
+      organizerName: org.name || '',
+      organizerEmail: org.address || '',
+      attendees: attendees,
+      isAllDay: !!raw.isAllDay,
+      webLink: raw.webLink || null,
+    };
+  }
+
+  function asTodoList(raw) {
+    if (!raw) return null;
+    return {
+      id: raw.id, name: raw.displayName || '',
+      isOwner: raw.isOwner !== false,
+      isShared: !!raw.isShared,
+      wellknownName: raw.wellknownListName || null,
+    };
+  }
+
+  function asTodoTask(raw) {
+    if (!raw) return null;
+    return {
+      id: raw.id,
+      title: raw.title || '',
+      status: raw.status || 'notStarted',
+      dueAt: (raw.dueDateTime && raw.dueDateTime.dateTime)
+        ? raw.dueDateTime.dateTime + 'Z' : null,
+      completedAt: (raw.completedDateTime && raw.completedDateTime.dateTime)
+        ? raw.completedDateTime.dateTime + 'Z' : null,
+      importance: raw.importance || 'normal',
+      body: (raw.body && raw.body.content) || '',
+      createdAt: raw.createdDateTime || null,
+    };
+  }
+
+  function asDriveItem(raw) {
+    if (!raw) return null;
+    var parent = raw.parentReference || {};
+    var file = raw.file || null;
+    var folder = raw.folder || null;
+    return {
+      id: raw.id,
+      name: raw.name || '',
+      size: raw.size || 0,
+      modifiedAt: raw.lastModifiedDateTime || null,
+      createdAt: raw.createdDateTime || null,
+      webUrl: raw.webUrl || null,
+      // @microsoft.graph.downloadUrl is a short-lived (~1h) direct link
+      // suitable for <img src=...> or fetch. Graph only includes it on
+      // file items, not folders.
+      downloadUrl: raw['@microsoft.graph.downloadUrl'] || null,
+      mimeType: file ? (file.mimeType || '') : '',
+      isFolder: !!folder,
+      childCount: folder ? (folder.childCount || 0) : 0,
+      parentPath: parent.path || '',
+    };
+  }
+
+  function asOneNotePage(raw) {
+    if (!raw) return null;
+    var section = raw.parentSection || {};
+    var notebook = raw.parentNotebook || {};
+    return {
+      id: raw.id,
+      title: raw.title || '',
+      sectionName: section.displayName || '',
+      notebookName: notebook.displayName || '',
+      lastModifiedAt: raw.lastModifiedDateTime || null,
+      webUrl: (raw.links && raw.links.oneNoteWebUrl && raw.links.oneNoteWebUrl.href) || null,
+    };
+  }
+
+  // ── exposed methods ──────────────────────────────────────────
+  iappyx.plugin.export({
+
+    isConfigured: function () {
+      var c = creds();
+      return ok({ configured: !!(c.clientId && c.refreshToken) });
+    },
+
+    profile: function () {
+      return authedGet('/me').then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status, r.raw));
+        var b = r.body || {};
+        // userPrincipalName like "user@outlook.com" → personal;
+        // "user@tenant.onmicrosoft.com" or custom domain → work.
+        var upn = (b.userPrincipalName || b.mail || '').toLowerCase();
+        var isPersonal = /(outlook|hotmail|live|msn)\.[a-z.]+$/.test(upn);
+        return ok({
+          name: b.displayName || '',
+          email: b.mail || b.userPrincipalName || '',
+          tenantType: isPersonal ? 'personal' : 'work',
+        });
+      });
+    },
+
+    mailUnread: function (args) {
+      var folder = (args && args.folder) || 'Inbox';
+      var top = Math.max(1, Math.min(50, (args && args.top) || 25));
+      // /me/mailFolders/Inbox/messages?$filter=isRead eq false …
+      var path = '/me/mailFolders/' + encodeURIComponent(folder)
+        + '/messages'
+        + '?$filter=isRead eq false'
+        + '&$orderby=receivedDateTime desc'
+        + '&$top=' + top
+        + '&$select=id,subject,from,bodyPreview,receivedDateTime,isRead,'
+        + 'hasAttachments,importance,webLink';
+      return authedGet(path).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status, r.raw));
+        var items = ((r.body && r.body.value) || []).map(asMessage).filter(Boolean);
+        return ok({ count: items.length, items: items });
+      });
+    },
+
+    mailFolders: function () {
+      var path = '/me/mailFolders'
+        + '?$top=50'
+        + '&$select=id,displayName,unreadItemCount,totalItemCount';
+      return authedGet(path).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status, r.raw));
+        var folders = ((r.body && r.body.value) || []).map(function (f) {
+          return {
+            id: f.id, name: f.displayName || '',
+            unreadCount: f.unreadItemCount || 0,
+            totalCount: f.totalItemCount || 0,
+          };
+        });
+        return ok({ folders: folders });
+      });
+    },
+
+    /** Calendar view of upcoming events. Uses /calendarView so recurring
+     *  events expand into individual instances — that's almost always
+     *  what a widget wants ("next thing happening"), not the master
+     *  recurring event. */
+    calendarNext: function (args) {
+      var hours = Math.max(1, Math.min(24 * 14, (args && args.hours) || 24));
+      var top = Math.max(1, Math.min(100, (args && args.top) || 10));
+      var now = new Date();
+      var to  = new Date(now.getTime() + hours * 3600 * 1000);
+      var path = '/me/calendarView'
+        + '?startDateTime=' + encodeURIComponent(now.toISOString())
+        + '&endDateTime='   + encodeURIComponent(to.toISOString())
+        + '&$orderby=start/dateTime'
+        + '&$top=' + top
+        + '&$select=id,subject,start,end,location,isAllDay,isOnlineMeeting,'
+        + 'onlineMeeting,organizer,attendees,webLink';
+      return authedGet(path).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status, r.raw));
+        var events = ((r.body && r.body.value) || []).map(asEvent).filter(Boolean);
+        return ok({ events: events });
+      });
+    },
+
+    calendarToday: function () {
+      var now = new Date();
+      var start = new Date(now); start.setHours(0,0,0,0);
+      var end   = new Date(now); end.setHours(23,59,59,999);
+      return calendarRangeImpl(start.toISOString(), end.toISOString());
+    },
+
+    calendarRange: function (args) {
+      var from = (args && args.from) || null;
+      var to   = (args && args.to)   || null;
+      if (!from || !to) return Promise.resolve(err('from and to required (ISO 8601)'));
+      return calendarRangeImpl(from, to);
+    },
+
+    todoLists: function () {
+      return authedGet('/me/todo/lists?$top=100').then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status, r.raw));
+        var lists = ((r.body && r.body.value) || []).map(asTodoList).filter(Boolean);
+        return ok({ lists: lists });
+      });
+    },
+
+    todoTasks: function (args) {
+      var listId = args && args.listId;
+      if (!listId) return Promise.resolve(err('listId required'));
+      var top = Math.max(1, Math.min(200, (args && args.top) || 50));
+      var includeCompleted = !!(args && args.includeCompleted);
+      var filter = includeCompleted ? '' : "&$filter=status ne 'completed'";
+      var path = '/me/todo/lists/' + encodeURIComponent(listId) + '/tasks'
+        + '?$top=' + top
+        + filter
+        + '&$orderby=createdDateTime desc';
+      return authedGet(path).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status, r.raw));
+        var tasks = ((r.body && r.body.value) || []).map(asTodoTask).filter(Boolean);
+        return ok({ tasks: tasks });
+      });
+    },
+
+    onedriveRecent: function (args) {
+      var top = Math.max(1, Math.min(50, (args && args.top) || 25));
+      var path = '/me/drive/recent?$top=' + top;
+      return authedGet(path).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status, r.raw));
+        var items = ((r.body && r.body.value) || []).map(asDriveItem).filter(Boolean);
+        return ok({ items: items });
+      });
+    },
+
+    onedriveSearch: function (args) {
+      var q = (args && args.query) || '';
+      if (!q) return Promise.resolve(err('query required'));
+      var top = Math.max(1, Math.min(50, (args && args.top) || 25));
+      // /me/drive/root/search(q='...') — Graph requires the apostrophes.
+      var path = '/me/drive/root/search(q=\'' + encodeURIComponent(q) + '\')'
+        + '?$top=' + top;
+      return authedGet(path).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status, r.raw));
+        var items = ((r.body && r.body.value) || []).map(asDriveItem).filter(Boolean);
+        return ok({ items: items });
+      });
+    },
+
+    onedriveChildren: function (args) {
+      var path = (args && args.path) || '/';
+      var top = Math.max(1, Math.min(200, (args && args.top) || 100));
+      // /me/drive/root:/Documents:/children  — colon-syntax for path lookup
+      var graphPath;
+      if (path === '/' || path === '') {
+        graphPath = '/me/drive/root/children?$top=' + top;
+      } else {
+        var trimmed = path.replace(/^\//, '');
+        graphPath = '/me/drive/root:/' + encodeURIComponent(trimmed).replace(/%2F/g, '/')
+                  + ':/children?$top=' + top;
+      }
+      return authedGet(graphPath).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status, r.raw));
+        var items = ((r.body && r.body.value) || []).map(asDriveItem).filter(Boolean);
+        return ok({ items: items });
+      });
+    },
+
+    /** Read a range from an Excel file in OneDrive. Killer feature — lets
+     *  any widget become a custom dashboard by reading cells the user
+     *  edits in their spreadsheet. */
+    excelRange: function (args) {
+      var filePath = args && args.filePath;
+      var sheet    = args && args.sheet;
+      var range    = args && args.range;
+      if (!filePath || !sheet || !range) {
+        return Promise.resolve(err('filePath, sheet, and range required'));
+      }
+      var trimmed = String(filePath).replace(/^\//, '');
+      var path = '/me/drive/root:/' + encodeURIComponent(trimmed).replace(/%2F/g, '/')
+        + ':/workbook/worksheets(\'' + encodeURIComponent(sheet) + '\')'
+        + '/range(address=\'' + encodeURIComponent(range) + '\')';
+      return authedGet(path).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status, r.raw));
+        var b = r.body || {};
+        return ok({
+          values: b.values || [],
+          formattedValues: b.text || b.values || [],
+          rows: b.rowCount || 0,
+          columns: b.columnCount || 0,
+          address: b.address || range,
+        });
+      });
+    },
+
+    onenoteRecent: function (args) {
+      var top = Math.max(1, Math.min(50, (args && args.top) || 25));
+      var path = '/me/onenote/pages'
+        + '?$top=' + top
+        + '&$orderby=lastModifiedDateTime desc'
+        + '&$expand=parentSection,parentNotebook'
+        + '&$select=id,title,lastModifiedDateTime,links';
+      return authedGet(path).then(function (r) {
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err(statusErr(r.status, r.raw));
+        var pages = ((r.body && r.body.value) || []).map(asOneNotePage).filter(Boolean);
+        return ok({ pages: pages });
+      });
+    },
+  });
+
+  // Helper for calendarToday + calendarRange.
+  function calendarRangeImpl(fromIso, toIso) {
+    var path = '/me/calendarView'
+      + '?startDateTime=' + encodeURIComponent(fromIso)
+      + '&endDateTime='   + encodeURIComponent(toIso)
+      + '&$orderby=start/dateTime'
+      + '&$top=100'
+      + '&$select=id,subject,start,end,location,isAllDay,isOnlineMeeting,'
+      + 'onlineMeeting,organizer,attendees,webLink';
+    return authedGet(path).then(function (r) {
+      if (r.error) return err(r.error);
+      if (r.status >= 400) return err(statusErr(r.status, r.raw));
+      var events = ((r.body && r.body.value) || []).map(asEvent).filter(Boolean);
+      return ok({ events: events });
+    });
+  }
+
+  iappyx.plugin.log('office365 plugin loaded');
+})();
+</script>
+</body>
+</html>

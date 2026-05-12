@@ -1,0 +1,6 @@
+{
+  "title": "Microsoft 365",
+  "description": "Outlook mail, Calendar, To Do, OneDrive, OneNote, and Excel range reads in widgets and wallpapers via Microsoft Graph. Surface via iappyx.plugin('office365').*. One-time OAuth setup; auto-refreshes thereafter. Works with personal Microsoft accounts and work/school tenants.",
+  "author": "iappyx",
+  "added": "2026-05-12"
+}
