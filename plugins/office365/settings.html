@@ -43,32 +43,48 @@
     .status.err{background:rgba(255,82,82,.10);color:var(--error);
       border:1px solid rgba(255,82,82,.4);display:block}
     .hint{color:var(--hint);font-size:12px;line-height:1.5;margin-top:6px}
+    .device-pane{margin-top:18px;padding:18px;background:#0a0a10;
+      border:1px solid var(--line);border-radius:10px;display:none}
+    .device-pane.active{display:block}
+    .device-pane p{margin:0 0 10px}
+    .device-pane a{color:var(--accent);font-size:15px;word-break:break-all}
+    .user-code{font-family:"SF Mono","Roboto Mono",ui-monospace,monospace;
+      font-size:28px;letter-spacing:.18em;color:var(--text);
+      padding:14px 16px;background:#000;border-radius:8px;text-align:center;
+      margin:14px 0;font-weight:700;user-select:all}
+    .poll{color:var(--hint);font-size:12px;display:flex;align-items:center;gap:8px}
+    .poll::before{content:"";width:8px;height:8px;border-radius:50%;
+      background:var(--accent);animation:pulse 1.2s ease-in-out infinite}
+    @keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}
+    .copy-btn{margin-left:8px;background:transparent;color:var(--accent);
+      border:1px solid rgba(0,120,212,.4);border-radius:6px;padding:3px 8px;
+      font-size:11px;cursor:pointer;flex:0 0 auto;width:auto;display:inline-block}
+    .connected-banner{margin-bottom:14px;padding:10px 14px;
+      background:rgba(102,187,106,.10);border:1px solid rgba(102,187,106,.35);
+      border-radius:10px;color:var(--ok);font-size:13px;display:none}
+    .connected-banner.show{display:block}
   </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Microsoft 365</h1>
-  <p class="sub">Surface Outlook mail, Calendar, To Do, OneDrive, OneNote, and Excel ranges in widgets and wallpapers. Microsoft uses OAuth, so the one-time setup is a few steps — after that it auto-refreshes itself.</p>
+  <p class="sub">Sign in once with your Microsoft account — the plugin handles token refresh from there.</p>
+
+  <div id="connected-banner" class="connected-banner">
+    <strong>Connected.</strong> The plugin has a working refresh token. Click <em>Disconnect</em> to remove it.
+  </div>
 
   <details>
-    <summary>How to get a Client ID + Refresh Token (one-time, ~5 min)</summary>
+    <summary>One-time Azure app setup (~3 min, do this first)</summary>
     <ol>
       <li>Open <a href="https://portal.azure.com" target="_blank">portal.azure.com</a> → <strong>App registrations</strong> → <strong>New registration</strong>. (Free, works with any Microsoft account — no Azure subscription needed.)</li>
-      <li>Name: anything (e.g. "iappyxOS Launcher"). <strong>Supported account types:</strong> "Accounts in any organizational directory and personal Microsoft accounts (Multitenant + personal)". Leave the redirect URI blank for now.</li>
-      <li>Once created, copy the <strong>Application (client) ID</strong> from the Overview page.</li>
-      <li>Go to <strong>Authentication</strong> → <strong>Add a platform</strong> → <strong>Mobile and desktop applications</strong> (NOT "Web" — Web requires a client_secret). Tick <code>http://localhost</code> in the list of suggested URIs, then <strong>Configure</strong>.</li>
+      <li>Name: anything (e.g. "iappyxOS Launcher"). <strong>Supported account types:</strong> "Accounts in any organizational directory and personal Microsoft accounts". <strong>Leave the redirect URI blank</strong> — device-code flow doesn't use one.</li>
+      <li>Once created, copy the <strong>Application (client) ID</strong> from the Overview page and paste it below.</li>
+      <li>Go to <strong>Authentication</strong> → set <strong>"Allow public client flows"</strong> to <strong>Yes</strong>. Save. (No platforms to configure.)</li>
       <li>Go to <strong>API permissions</strong> → Add → Microsoft Graph → <strong>Delegated</strong>. Add: <code>offline_access</code>, <code>User.Read</code>, <code>Mail.Read</code>, <code>Calendars.Read</code>, <code>Tasks.Read</code>, <code>Files.Read.All</code>, <code>Notes.Read.All</code>. Personal-account-only — no admin consent needed.</li>
-      <li>Open this URL in a desktop browser (replace <code>YOUR_CLIENT_ID</code>):
-        <br><code>https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=YOUR_CLIENT_ID&response_type=code&redirect_uri=http%3A%2F%2Flocalhost&response_mode=query&scope=offline_access%20User.Read%20Mail.Read%20Calendars.Read%20Tasks.Read%20Files.Read.All%20Notes.Read.All&prompt=consent</code>
-      </li>
-      <li>Sign in and approve. Your browser redirects to <code>http://localhost/?code=M.C5_…long-code…</code>. The page will fail to load — that's fine; just copy the <strong>code</strong> value from the URL bar.</li>
-      <li>From a terminal, exchange the code for a refresh token:
-        <br><code>curl -X POST https://login.microsoftonline.com/common/oauth2/v2.0/token -d grant_type=authorization_code -d code=THE_CODE -d redirect_uri=http://localhost -d client_id=YOUR_CLIENT_ID -d scope='offline_access User.Read Mail.Read Calendars.Read Tasks.Read Files.Read.All Notes.Read.All'</code>
-      </li>
-      <li>The JSON response includes <code>refresh_token</code>. Paste it below.</li>
     </ol>
-    <p class="hint" style="margin-top:10px;">
-      <strong>Got <code>AADSTS70002: client_secret required</code>?</strong> The redirect URI is registered under the <em>Web</em> platform instead of <em>Mobile and desktop applications</em>. Azure treats Web as a confidential client and demands a secret even with "Allow public client flows" enabled. Delete the Web entry from Authentication → Platform configurations and re-add the URI under <em>Mobile and desktop applications</em>.
+    <p class="hint" style="margin-top:10px">
+      That's all. After this, every <em>Connect Microsoft account</em> click below opens a Microsoft sign-in page — no code-copying, no curl, no client secret.
     </p>
   </details>
 
@@ -76,121 +92,246 @@
     <label for="client-id">Application (client) ID</label>
     <input id="client-id" type="text" autocomplete="off" autocapitalize="off" autocorrect="off"
            placeholder="e.g. 12345678-90ab-cdef-1234-567890abcdef" />
-    <p class="hint">From the Azure portal app registration overview.</p>
-  </div>
-
-  <div class="field">
-    <label for="refresh-token">Refresh token</label>
-    <textarea id="refresh-token" rows="3" autocomplete="off" autocapitalize="off" autocorrect="off"
-              placeholder="paste the long refresh_token here (begins with M.C5_, M.R3_, OAQAB…, etc.)"></textarea>
-    <p class="hint">From step 8. The plugin trades this for short-lived access tokens on demand — no client secret needed. Microsoft rotates the refresh token on every refresh; the plugin saves the new one automatically.</p>
+    <p class="hint">From your Azure app registration's Overview page.</p>
   </div>
 
   <div class="row">
-    <button id="test-btn">Test connection</button>
-    <button id="save-btn" class="primary">Save</button>
+    <button id="connect-btn" class="primary">Connect Microsoft account</button>
+    <button id="disconnect-btn">Disconnect</button>
+  </div>
+
+  <div id="device-pane" class="device-pane">
+    <p>1. In your browser, open:</p>
+    <p><a id="verification-link" target="_blank" rel="noopener"></a></p>
+    <p style="margin-top:14px">2. Enter this code when prompted:</p>
+    <div id="user-code" class="user-code">—</div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="poll" id="poll-status">Waiting for you to approve in the browser…</span>
+      <button class="copy-btn" id="copy-code">Copy code</button>
+    </div>
   </div>
 
   <div id="status" class="status"></div>
+
+  <details style="margin-top:24px">
+    <summary>Advanced: paste an existing refresh token manually</summary>
+    <p class="hint" style="margin-top:8px">
+      Only needed if you already have a refresh token from a different flow (e.g. Authorization Code).
+      Most users should use the <em>Connect</em> button above instead.
+    </p>
+    <div class="field" style="margin-top:14px">
+      <label for="refresh-token">Refresh token</label>
+      <textarea id="refresh-token" rows="3" autocomplete="off" autocapitalize="off" autocorrect="off"
+                placeholder="paste the long refresh_token here (begins with M.C5_, M.R3_, OAQAB…, etc.)"></textarea>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="save-manual-btn">Save manual token</button>
+    </div>
+  </details>
 </div>
 
 <script>
 (function () {
   'use strict';
-  var idField  = document.getElementById('client-id');
-  var rtField  = document.getElementById('refresh-token');
-  var testBtn  = document.getElementById('test-btn');
-  var saveBtn  = document.getElementById('save-btn');
-  var status   = document.getElementById('status');
 
   var SCOPE = 'offline_access User.Read Mail.Read Calendars.Read '
             + 'Tasks.Read Files.Read.All Notes.Read.All';
+  var DEVICECODE_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/devicecode';
+  var TOKEN_URL      = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
 
+  var idField        = document.getElementById('client-id');
+  var rtField        = document.getElementById('refresh-token');
+  var connectBtn     = document.getElementById('connect-btn');
+  var disconnectBtn  = document.getElementById('disconnect-btn');
+  var saveManualBtn  = document.getElementById('save-manual-btn');
+  var copyCodeBtn    = document.getElementById('copy-code');
+  var status         = document.getElementById('status');
+  var banner         = document.getElementById('connected-banner');
+  var devicePane     = document.getElementById('device-pane');
+  var userCodeEl     = document.getElementById('user-code');
+  var pollEl         = document.getElementById('poll-status');
+  var verifyLink     = document.getElementById('verification-link');
+
+  // Load existing state from secureStore (preloaded by the launcher's
+  // remote-edit shim OR provided directly by the native shim — both
+  // expose iappyx.secureStore.get synchronously).
   idField.value = iappyx.secureStore.get('clientId') || '';
   rtField.value = iappyx.secureStore.get('refreshToken') || '';
+  if (idField.value && rtField.value) banner.classList.add('show');
 
   function setStatus(kind, message) {
     status.className = 'status ' + kind;
     status.textContent = message;
   }
-  function readForm() {
-    return {
-      clientId: idField.value.trim(),
-      refreshToken: rtField.value.trim(),
-    };
+
+  function persist(clientId, refreshToken) {
+    iappyx.secureStore.set('clientId', clientId);
+    iappyx.secureStore.set('refreshToken', refreshToken);
+    iappyx.secureStore.set('scope', SCOPE);
+    banner.classList.add('show');
+    rtField.value = refreshToken;
   }
 
-  testBtn.addEventListener('click', async function () {
-    var f = readForm();
-    if (!f.clientId || !f.refreshToken) {
-      setStatus('err', 'Fill in both fields first.');
+  // Cancellation token for in-flight polls — if the user clicks Connect
+  // again or Disconnect, abandon the previous loop.
+  var pollSession = 0;
+
+  async function connect() {
+    var clientId = idField.value.trim();
+    if (!clientId) {
+      setStatus('err', 'Paste your Application (client) ID first.');
       return;
     }
-    testBtn.disabled = true; saveBtn.disabled = true;
-    setStatus('ok', 'Refreshing access token…');
+    var sess = ++pollSession;
+
+    connectBtn.disabled = true; disconnectBtn.disabled = true;
+    devicePane.classList.remove('active');
+    setStatus('ok', 'Requesting device code…');
+
+    // 1) Ask Microsoft for a device code + verification URI.
+    var dc;
     try {
-      var body = 'grant_type=refresh_token'
-        + '&refresh_token=' + encodeURIComponent(f.refreshToken)
-        + '&client_id='     + encodeURIComponent(f.clientId)
-        + '&scope='         + encodeURIComponent(SCOPE);
       var r = await iappyx.httpClient.fetch({
-        url: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
+        url: DEVICECODE_URL,
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded',
                    'Accept': 'application/json' },
-        body: body,
+        body: 'client_id=' + encodeURIComponent(clientId)
+            + '&scope='   + encodeURIComponent(SCOPE),
       });
-      var parsed = {};
-      try { parsed = JSON.parse(r.body) || {}; } catch (_) {}
-      if (r.status !== 200) {
-        setStatus('err', 'Refresh failed: '
-          + (parsed.error_description || parsed.error || ('HTTP ' + r.status)));
+      dc = JSON.parse(r.body || '{}');
+      if (!dc.device_code) {
+        var why = dc.error_description || dc.error || ('HTTP ' + r.status);
+        setStatus('err', 'Failed to request device code: ' + why);
+        connectBtn.disabled = false; disconnectBtn.disabled = false;
         return;
       }
-      var token = parsed.access_token;
-      if (!token) { setStatus('err', 'No access token in reply.'); return; }
-      // Microsoft rotates the refresh token on every refresh — save the
-      // new one immediately or the very next call will fail with
-      // invalid_grant. Same logic as the runtime plugin's refresh path.
-      var rotated = parsed.refresh_token;
-
-      // Probe /me to confirm and surface the account identity.
-      var me = await iappyx.httpClient.fetch({
-        url: 'https://graph.microsoft.com/v1.0/me',
-        headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
-      });
-      if (me.status !== 200) {
-        setStatus('err', 'Access token worked but /me returned ' + me.status + '.');
-        return;
-      }
-      var info = {};
-      try { info = JSON.parse(me.body) || {}; } catch (_) {}
-      var name = info.displayName || info.userPrincipalName || 'Microsoft user';
-      var email = info.mail || info.userPrincipalName || '';
-      // Persist the rotated token immediately so we don't lose it.
-      if (rotated && rotated !== f.refreshToken) {
-        iappyx.secureStore.set('refreshToken', rotated);
-        rtField.value = rotated;
-      }
-      setStatus('ok', 'Connected as ' + name + (email ? ' (' + email + ')' : '') + '.');
     } catch (e) {
-      setStatus('err', 'Network error: ' + ((e && e.message) || e));
-    } finally {
-      testBtn.disabled = false; saveBtn.disabled = false;
+      setStatus('err', 'Network error: ' + (e.message || e));
+      connectBtn.disabled = false; disconnectBtn.disabled = false;
+      return;
     }
-  });
 
-  saveBtn.addEventListener('click', function () {
-    var f = readForm();
-    iappyx.secureStore.set('clientId', f.clientId);
-    iappyx.secureStore.set('refreshToken', f.refreshToken);
-    iappyx.secureStore.set('scope', SCOPE);
+    // 2) Show the user code + verification URL. The user opens the URL,
+    //    signs in, types the code, approves the requested permissions.
+    userCodeEl.textContent = dc.user_code;
+    verifyLink.textContent = dc.verification_uri;
+    verifyLink.href = dc.verification_uri;
+    devicePane.classList.add('active');
+    pollEl.textContent = 'Waiting for you to approve in the browser…';
+    setStatus('', '');
+
+    // 3) Poll the token endpoint. Microsoft returns 400 with
+    //    error=authorization_pending while we wait; success drops a real
+    //    {access_token, refresh_token, expires_in} object.
+    var intervalSec = dc.interval || 5;
+    var expiresAt = Date.now() + (dc.expires_in || 900) * 1000;
+
+    while (Date.now() < expiresAt) {
+      if (sess !== pollSession) return;  // user clicked Connect/Disconnect again
+      await new Promise(function (res) { setTimeout(res, intervalSec * 1000); });
+      if (sess !== pollSession) return;
+
+      var tok;
+      try {
+        var r2 = await iappyx.httpClient.fetch({
+          url: TOKEN_URL,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded',
+                     'Accept': 'application/json' },
+          body: 'grant_type=' + encodeURIComponent('urn:ietf:params:oauth:grant-type:device_code')
+              + '&client_id='   + encodeURIComponent(clientId)
+              + '&device_code=' + encodeURIComponent(dc.device_code),
+        });
+        tok = JSON.parse(r2.body || '{}');
+      } catch (e) {
+        // Transient network glitch — keep polling, code is still valid.
+        continue;
+      }
+
+      if (tok.refresh_token) {
+        persist(clientId, tok.refresh_token);
+        devicePane.classList.remove('active');
+        setStatus('ok', 'Connected.');
+        connectBtn.disabled = false; disconnectBtn.disabled = false;
+        // Don't auto-close — let the user see the success + decide to
+        // close. (Settings on a phone normally closes itself; on the web
+        // the modal stays so they can verify before dismissing.)
+        return;
+      }
+
+      // authorization_pending → keep waiting.
+      // slow_down → MS asks us to back off; bump interval per spec.
+      // expired_token / access_denied → terminal failure.
+      if (tok.error === 'authorization_pending') {
+        pollEl.textContent = 'Still waiting for approval…';
+        continue;
+      }
+      if (tok.error === 'slow_down') {
+        intervalSec += 5;
+        pollEl.textContent = 'Microsoft asked us to slow down — waiting ' + intervalSec + 's…';
+        continue;
+      }
+      if (tok.error === 'authorization_declined' || tok.error === 'access_denied') {
+        setStatus('err', 'You declined the sign-in. Click Connect to try again.');
+        devicePane.classList.remove('active');
+        connectBtn.disabled = false; disconnectBtn.disabled = false;
+        return;
+      }
+      if (tok.error === 'expired_token' || tok.error === 'code_expired') {
+        setStatus('err', 'Code expired. Click Connect to start over.');
+        devicePane.classList.remove('active');
+        connectBtn.disabled = false; disconnectBtn.disabled = false;
+        return;
+      }
+      // Unknown error — surface and stop. Common cause: invalid client_id
+      // or "Allow public client flows" still off on the Azure app.
+      var why2 = tok.error_description || tok.error || 'unknown error';
+      setStatus('err', 'Sign-in failed: ' + why2);
+      devicePane.classList.remove('active');
+      connectBtn.disabled = false; disconnectBtn.disabled = false;
+      return;
+    }
+
+    setStatus('err', 'Device code expired before approval. Click Connect to try again.');
+    devicePane.classList.remove('active');
+    connectBtn.disabled = false; disconnectBtn.disabled = false;
+  }
+
+  function disconnect() {
+    pollSession++;  // abandon any in-flight poll
+    iappyx.secureStore.remove('refreshToken');
+    rtField.value = '';
+    banner.classList.remove('show');
+    devicePane.classList.remove('active');
+    setStatus('ok', 'Disconnected.');
+  }
+
+  function saveManual() {
+    var clientId = idField.value.trim();
+    var rt = rtField.value.trim();
+    if (!clientId || !rt) {
+      setStatus('err', 'Need both Client ID and Refresh Token.');
+      return;
+    }
+    persist(clientId, rt);
     setStatus('ok', 'Saved.');
-    setTimeout(function () { iappyx.plugin.close(); }, 400);
+  }
+
+  connectBtn.addEventListener('click', connect);
+  disconnectBtn.addEventListener('click', disconnect);
+  saveManualBtn.addEventListener('click', saveManual);
+  copyCodeBtn.addEventListener('click', function () {
+    try {
+      navigator.clipboard.writeText(userCodeEl.textContent || '').then(function () {
+        copyCodeBtn.textContent = 'Copied';
+        setTimeout(function () { copyCodeBtn.textContent = 'Copy code'; }, 1500);
+      });
+    } catch (_) {}
   });
 
   document.addEventListener('keydown', function (e) {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') saveBtn.click();
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') connect();
   });
 })();
 </script>
