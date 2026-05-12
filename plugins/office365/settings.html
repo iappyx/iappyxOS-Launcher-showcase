@@ -54,19 +54,22 @@
     <summary>How to get a Client ID + Refresh Token (one-time, ~5 min)</summary>
     <ol>
       <li>Open <a href="https://portal.azure.com" target="_blank">portal.azure.com</a> → <strong>App registrations</strong> → <strong>New registration</strong>. (Free, works with any Microsoft account — no Azure subscription needed.)</li>
-      <li>Name: anything (e.g. "iappyxOS Launcher"). <strong>Supported account types:</strong> "Accounts in any organizational directory and personal Microsoft accounts (Multitenant + personal)". <strong>Redirect URI:</strong> Web → <code>http://localhost:8080/callback</code>.</li>
+      <li>Name: anything (e.g. "iappyxOS Launcher"). <strong>Supported account types:</strong> "Accounts in any organizational directory and personal Microsoft accounts (Multitenant + personal)". Leave the redirect URI blank for now.</li>
       <li>Once created, copy the <strong>Application (client) ID</strong> from the Overview page.</li>
-      <li>Go to <strong>Authentication</strong> → enable <strong>"Allow public client flows"</strong> (so the refresh works without a client secret). Save.</li>
+      <li>Go to <strong>Authentication</strong> → <strong>Add a platform</strong> → <strong>Mobile and desktop applications</strong> (NOT "Web" — Web requires a client_secret). Tick <code>http://localhost</code> in the list of suggested URIs, then <strong>Configure</strong>.</li>
       <li>Go to <strong>API permissions</strong> → Add → Microsoft Graph → <strong>Delegated</strong>. Add: <code>offline_access</code>, <code>User.Read</code>, <code>Mail.Read</code>, <code>Calendars.Read</code>, <code>Tasks.Read</code>, <code>Files.Read.All</code>, <code>Notes.Read.All</code>. Personal-account-only — no admin consent needed.</li>
       <li>Open this URL in a desktop browser (replace <code>YOUR_CLIENT_ID</code>):
-        <br><code>https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=YOUR_CLIENT_ID&response_type=code&redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Fcallback&response_mode=query&scope=offline_access%20User.Read%20Mail.Read%20Calendars.Read%20Tasks.Read%20Files.Read.All%20Notes.Read.All&prompt=consent</code>
+        <br><code>https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=YOUR_CLIENT_ID&response_type=code&redirect_uri=http%3A%2F%2Flocalhost&response_mode=query&scope=offline_access%20User.Read%20Mail.Read%20Calendars.Read%20Tasks.Read%20Files.Read.All%20Notes.Read.All&prompt=consent</code>
       </li>
-      <li>Sign in and approve. Your browser redirects to <code>http://localhost:8080/callback?code=M.C5_…long-code…</code>. The page will fail to load — that's fine; just copy the <strong>code</strong> value from the URL bar.</li>
+      <li>Sign in and approve. Your browser redirects to <code>http://localhost/?code=M.C5_…long-code…</code>. The page will fail to load — that's fine; just copy the <strong>code</strong> value from the URL bar.</li>
       <li>From a terminal, exchange the code for a refresh token:
-        <br><code>curl -X POST https://login.microsoftonline.com/common/oauth2/v2.0/token -d grant_type=authorization_code -d code=THE_CODE -d redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Fcallback -d client_id=YOUR_CLIENT_ID -d scope='offline_access User.Read Mail.Read Calendars.Read Tasks.Read Files.Read.All Notes.Read.All'</code>
+        <br><code>curl -X POST https://login.microsoftonline.com/common/oauth2/v2.0/token -d grant_type=authorization_code -d code=THE_CODE -d redirect_uri=http://localhost -d client_id=YOUR_CLIENT_ID -d scope='offline_access User.Read Mail.Read Calendars.Read Tasks.Read Files.Read.All Notes.Read.All'</code>
       </li>
       <li>The JSON response includes <code>refresh_token</code>. Paste it below.</li>
     </ol>
+    <p class="hint" style="margin-top:10px;">
+      <strong>Got <code>AADSTS70002: client_secret required</code>?</strong> The redirect URI is registered under the <em>Web</em> platform instead of <em>Mobile and desktop applications</em>. Azure treats Web as a confidential client and demands a secret even with "Allow public client flows" enabled. Delete the Web entry from Authentication → Platform configurations and re-add the URI under <em>Mobile and desktop applications</em>.
+    </p>
   </details>
 
   <div class="field">
