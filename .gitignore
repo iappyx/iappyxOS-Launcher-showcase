@@ -1,0 +1,34 @@
+# Claude Code
+.claude/
+
+# macOS
+**/.DS_Store
+
+# Defence-in-depth for testing. Showcase content is intentionally plain
+# .json + .html (settings.html files include placeholder strings only,
+# never real keys), but if a real API key ever ends up pasted into a
+# plugin's settings.html while debugging, these lines prevent a stray
+# `git add .` from committing it.
+
+# Secrets — keys + credentials
+*.jks
+*.keystore
+**/key.properties
+**/local.properties
+**/.env
+**/.env.*
+**/credentials.json
+**/google-services.json
+**/firebase_config.json
+**/firebase-adminsdk*.json
+
+# Build / tooling output
+**/build/
+**/.gradle/
+*.log
+*.bak
+
+# IDE
+.idea/
+*.iml
+.vscode/
