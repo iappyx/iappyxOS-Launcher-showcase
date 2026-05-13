@@ -1,0 +1,381 @@
+<!doctype html>
+<!--
+  Unraid plugin — runtime.
+
+  Talks to Unraid 7.0+ at `<host>/graphql` over the LAN. Auth is a single
+  x-api-key header issued by the user in the Unraid UI.
+
+  Self-signed certs: Unraid's HTTPS uses a self-signed cert by default.
+  We pass `insecure:true` on every fetch when the host is https://; the
+  launcher's HTTP bridge only honours that flag for LAN addresses (RFC1918
+  + .local mDNS), so cert-validation bypass cannot leak off-network.
+  Plain http:// works too; no insecure flag is needed for it.
+
+  Storage:
+    secureStore:  host, apiKey, hostname (cached for offline display)
+    storage:      (none)
+
+  Network restriction (manifest): "trusted" — the server is on the user's
+  LAN, so a restricted plugin is correct. Bearer-style API key never
+  leaves the device on a hostile network.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Unraid plugin</title>
+</head>
+<body>
+<script>
+(function () {
+  'use strict';
+
+  function ok(extra)    { return Object.assign({ ok: true }, extra || {}); }
+  function err(message) { return { ok: false, error: message }; }
+
+  function creds() {
+    return {
+      host:   iappyx.secureStore.get('host')   || '',
+      apiKey: iappyx.secureStore.get('apiKey') || '',
+    };
+  }
+
+  function isHttps(url) { return /^https:\/\//i.test(url); }
+
+  /** Run a GraphQL operation. Returns either {data} on success or
+   *  {error:'...'} on transport / auth / GraphQL-level failure. Public
+   *  methods then wrap this into the ok/err shape. */
+  function gql(query, variables) {
+    var c = creds();
+    if (!c.host || !c.apiKey) return Promise.resolve({ error: 'not configured' });
+    return iappyx.httpClient.fetch({
+      url: c.host + '/graphql',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json',
+                 'Accept': 'application/json',
+                 'x-api-key': c.apiKey },
+      body: JSON.stringify({ query: query, variables: variables || {} }),
+      insecure: isHttps(c.host),
+    }).then(function (r) {
+      if (r.status === 401 || r.status === 403) return { error: 'API key rejected' };
+      if (r.status < 200 || r.status >= 300) return { error: 'HTTP ' + r.status };
+      var body = null;
+      try { body = r.body ? JSON.parse(r.body) : null; } catch (_) {}
+      if (!body) return { error: 'empty reply' };
+      if (Array.isArray(body.errors) && body.errors.length) {
+        return { error: body.errors[0].message || 'graphql error' };
+      }
+      return { data: body.data || {} };
+    });
+  }
+
+  // ── Shape adapters ───────────────────────────────────────────
+  // Defensive — the GraphQL schema has evolved across 7.0.x patch
+  // releases; missing fields shouldn't crash widget code. Adapters
+  // collapse nulls to sensible defaults (null / 0 / '').
+
+  function asArrayDisk(raw) {
+    if (!raw) return null;
+    return {
+      id:     String(raw.id || raw.idx || ''),
+      name:   raw.name || '',
+      type:   raw.type || '',
+      status: raw.status || '',
+      size:   raw.size || 0,
+      temp:   raw.temp != null ? raw.temp : null,
+      fsSize: raw.fsSize || 0,
+      fsFree: raw.fsFree || 0,
+      fsUsed: raw.fsUsed || 0,
+    };
+  }
+
+  function asContainer(raw) {
+    if (!raw) return null;
+    var names = [];
+    if (Array.isArray(raw.names)) names = raw.names.map(String);
+    else if (raw.name) names = [String(raw.name)];
+    return {
+      id:        String(raw.id || ''),
+      names:     names,
+      image:     raw.image || '',
+      state:     raw.state || '',
+      status:    raw.status || '',
+      ports:     Array.isArray(raw.ports) ? raw.ports : [],
+      autoStart: !!raw.autoStart,
+    };
+  }
+
+  function asVm(raw) {
+    if (!raw) return null;
+    return {
+      id:     String(raw.uuid || raw.id || ''),
+      name:   raw.name || '',
+      state:  raw.state || '',
+      uptime: raw.uptime != null ? raw.uptime : null,
+    };
+  }
+
+  function asShare(raw) {
+    if (!raw) return null;
+    return {
+      name:      raw.name || '',
+      free:      raw.free || 0,
+      used:      raw.used || 0,
+      size:      raw.size || 0,
+      allocator: raw.allocator || '',
+      cache:     raw.cache || '',
+      include:   Array.isArray(raw.include) ? raw.include : [],
+      exclude:   Array.isArray(raw.exclude) ? raw.exclude : [],
+    };
+  }
+
+  function asNotification(raw) {
+    if (!raw) return null;
+    return {
+      id:          String(raw.id || ''),
+      title:       raw.title || '',
+      subject:     raw.subject || '',
+      description: raw.description || '',
+      importance:  raw.importance || 'NORMAL',
+      timestamp:   raw.timestamp || null,
+    };
+  }
+
+  // ── Exposed methods ──────────────────────────────────────────
+  iappyx.plugin.export({
+
+    isConfigured: function () {
+      var c = creds();
+      return ok({
+        configured: !!(c.host && c.apiKey),
+        host:       c.host,
+        hostname:   iappyx.secureStore.get('hostname') || '',
+      });
+    },
+
+    systemInfo: function () {
+      return gql(
+        '{ info {' +
+        '  os { hostname uptime kernel }' +
+        '  versions { unraid }' +
+        '  cpu { brand cores threads }' +
+        '  memory { total free used available }' +
+        '} }'
+      ).then(function (r) {
+        if (r.error) return err(r.error);
+        var i = r.data.info || {};
+        var os = i.os || {}, v = i.versions || {}, cpu = i.cpu || {}, mem = i.memory || {};
+        // Cache the hostname so subsequent isConfigured() shows it
+        // without a round-trip.
+        if (os.hostname) iappyx.secureStore.set('hostname', os.hostname);
+        return ok({
+          hostname: os.hostname || '',
+          uptime:   os.uptime   || null,
+          kernel:   os.kernel   || '',
+          version:  v.unraid    || '',
+          cpu: {
+            brand:   cpu.brand   || '',
+            cores:   cpu.cores   || 0,
+            threads: cpu.threads || 0,
+          },
+          memory: {
+            total:     mem.total     || 0,
+            free:      mem.free      || 0,
+            used:      mem.used      || 0,
+            available: mem.available || 0,
+          },
+        });
+      });
+    },
+
+    arrayInfo: function () {
+      return gql(
+        '{ array {' +
+        '  state' +
+        '  capacity { kilobytes { free used total } }' +
+        '  parities { id name status temp size }' +
+        '  disks    { id name type status temp size fsSize fsFree fsUsed }' +
+        '  caches   { id name status temp size fsSize fsFree fsUsed }' +
+        '} }'
+      ).then(function (r) {
+        if (r.error) return err(r.error);
+        var a = r.data.array || {};
+        var kb = (a.capacity && a.capacity.kilobytes) || {};
+        return ok({
+          state: a.state || '',
+          // Convert KB → bytes for consistency with the docker/share
+          // helpers (which already report bytes).
+          used:  (kb.used  || 0) * 1024,
+          free:  (kb.free  || 0) * 1024,
+          total: (kb.total || 0) * 1024,
+          parities: (a.parities || []).map(asArrayDisk).filter(Boolean),
+          disks:    (a.disks    || []).map(asArrayDisk).filter(Boolean),
+          caches:   (a.caches   || []).map(asArrayDisk).filter(Boolean),
+        });
+      });
+    },
+
+    containers: function () {
+      return gql(
+        '{ docker { containers {' +
+        '  id names image state status autoStart' +
+        '  ports { ip privatePort publicPort type }' +
+        '} } }'
+      ).then(function (r) {
+        if (r.error) return err(r.error);
+        var list = (r.data.docker && r.data.docker.containers) || [];
+        return ok({ containers: list.map(asContainer).filter(Boolean) });
+      });
+    },
+
+    containerStart: function (args) {
+      var id = args && args.id; if (!id) return Promise.resolve(err('id required'));
+      return gql(
+        'mutation($id:PrefixedID!){ docker { start(id:$id) { id state } } }',
+        { id: String(id) }
+      ).then(function (r) { return r.error ? err(r.error) : ok({}); });
+    },
+
+    containerStop: function (args) {
+      var id = args && args.id; if (!id) return Promise.resolve(err('id required'));
+      return gql(
+        'mutation($id:PrefixedID!){ docker { stop(id:$id) { id state } } }',
+        { id: String(id) }
+      ).then(function (r) { return r.error ? err(r.error) : ok({}); });
+    },
+
+    containerRestart: function (args) {
+      var id = args && args.id; if (!id) return Promise.resolve(err('id required'));
+      return gql(
+        'mutation($id:PrefixedID!){ docker { restart(id:$id) { id state } } }',
+        { id: String(id) }
+      ).then(function (r) { return r.error ? err(r.error) : ok({}); });
+    },
+
+    vms: function () {
+      return gql(
+        '{ vms { domain { uuid name state } } }'
+      ).then(function (r) {
+        if (r.error) return err(r.error);
+        var list = (r.data.vms && r.data.vms.domain) || [];
+        return ok({ vms: list.map(asVm).filter(Boolean) });
+      });
+    },
+
+    vmStart: function (args) {
+      var id = args && args.id; if (!id) return Promise.resolve(err('id required'));
+      return gql(
+        'mutation($id:PrefixedID!){ vm { start(id:$id) { uuid state } } }',
+        { id: String(id) }
+      ).then(function (r) { return r.error ? err(r.error) : ok({}); });
+    },
+
+    vmStop: function (args) {
+      var id = args && args.id; if (!id) return Promise.resolve(err('id required'));
+      return gql(
+        'mutation($id:PrefixedID!){ vm { stop(id:$id) { uuid state } } }',
+        { id: String(id) }
+      ).then(function (r) { return r.error ? err(r.error) : ok({}); });
+    },
+
+    vmForceStop: function (args) {
+      var id = args && args.id; if (!id) return Promise.resolve(err('id required'));
+      return gql(
+        'mutation($id:PrefixedID!){ vm { forceStop(id:$id) { uuid state } } }',
+        { id: String(id) }
+      ).then(function (r) { return r.error ? err(r.error) : ok({}); });
+    },
+
+    parityCheck: function () {
+      return gql(
+        '{ parityHistory { startedAt duration errors status }' +
+        '  array { parityCheck { running progress speed eta errors correct } } }'
+      ).then(function (r) {
+        if (r.error) return err(r.error);
+        var arr = r.data.array || {};
+        var pc  = arr.parityCheck || {};
+        var hist = r.data.parityHistory || [];
+        // Most recent run is element 0 in the schema's default ordering;
+        // be defensive in case the server returns reverse.
+        var last = hist[0] || null;
+        return ok({
+          running:  !!pc.running,
+          progress: pc.progress != null ? pc.progress : 0,
+          speed:    pc.speed    != null ? pc.speed    : 0,
+          eta:      pc.eta      != null ? pc.eta      : 0,
+          errors:   pc.errors   != null ? pc.errors   : 0,
+          correct:  !!pc.correct,
+          lastCheck: last ? {
+            date:        last.startedAt || '',
+            durationSec: last.duration  || 0,
+            errors:      last.errors    || 0,
+            status:      last.status    || '',
+          } : null,
+        });
+      });
+    },
+
+    parityStart: function (args) {
+      var correct = !!(args && args.correct);
+      return gql(
+        'mutation($correct:Boolean!){ array { parityCheck { start(correct:$correct) { running } } } }',
+        { correct: correct }
+      ).then(function (r) { return r.error ? err(r.error) : ok({}); });
+    },
+
+    parityCancel: function () {
+      return gql(
+        'mutation{ array { parityCheck { cancel { running } } } }'
+      ).then(function (r) { return r.error ? err(r.error) : ok({}); });
+    },
+
+    parityPause: function () {
+      return gql(
+        'mutation{ array { parityCheck { pause { running } } } }'
+      ).then(function (r) { return r.error ? err(r.error) : ok({}); });
+    },
+
+    parityResume: function () {
+      return gql(
+        'mutation{ array { parityCheck { resume { running } } } }'
+      ).then(function (r) { return r.error ? err(r.error) : ok({}); });
+    },
+
+    shares: function () {
+      return gql(
+        '{ shares { name free used size allocator cache include exclude } }'
+      ).then(function (r) {
+        if (r.error) return err(r.error);
+        var list = r.data.shares || [];
+        return ok({ shares: list.map(asShare).filter(Boolean) });
+      });
+    },
+
+    notifications: function () {
+      return gql(
+        '{ notifications { list { id title subject description importance timestamp } } }'
+      ).then(function (r) {
+        if (r.error) return err(r.error);
+        var list = (r.data.notifications && r.data.notifications.list) || [];
+        return ok({ notifications: list.map(asNotification).filter(Boolean) });
+      });
+    },
+
+    /** Escape hatch for fields not surfaced above. Returns {ok, data}
+     *  or {ok:false, error}. Useful when the server's schema differs
+     *  from the helpers' assumptions (older minor versions, new fields). */
+    query: function (args) {
+      var q = args && args.query;
+      if (!q) return Promise.resolve(err('query required'));
+      var vars = (args && args.variables) || {};
+      return gql(String(q), vars).then(function (r) {
+        if (r.error) return err(r.error);
+        return ok({ data: r.data });
+      });
+    },
+  });
+
+  iappyx.plugin.log('unraid plugin loaded');
+})();
+</script>
+</body>
+</html>

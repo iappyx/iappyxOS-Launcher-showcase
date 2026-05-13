@@ -1,0 +1,6 @@
+{
+  "title": "Unraid",
+  "description": "Self-hosted Unraid server: stats, Docker containers, parity, VMs, shares. Surface via iappyx.plugin('unraid').*. Pure local-network — no cloud. Requires Unraid 7.0+ (the official GraphQL API) and a server-side API key. Defaults to trusted-Wi-Fi-only so the key never leaves the device on a hostile network.",
+  "author": "iappyx",
+  "added": "2026-05-14"
+}
