@@ -2,8 +2,11 @@
 <!--
   Philips Hue plugin — runtime.
 
-  Pure local-network plugin. The bridge runs at `http://<lan-ip>/api/...`
-  and accepts plain JSON. There is no cloud, no OAuth, no client_secret.
+  Pure local-network plugin. The bridge runs at `https://<lan-ip>/api/...`
+  with a self-signed cert (both classic Bridge v2 and Bridge Pro). Cert
+  validation is skipped via `insecure:true` — the launcher only honours
+  that flag for LAN addresses, so cert-validation bypass cannot leak
+  off-network. There is no cloud, no OAuth, no client_secret.
   Auth is a username obtained during a one-time button-press pairing
   (see settings.html); usernames don't expire.
 
@@ -38,7 +41,11 @@
   function base() {
     var c = creds();
     if (!c.bridgeIp || !c.username) return null;
-    return 'http://' + c.bridgeIp + '/api/' + encodeURIComponent(c.username);
+    // HTTPS: the Bridge Pro shut off plain HTTP. The classic Bridge v2
+    // also speaks HTTPS on 443 (same self-signed cert pattern), so one
+    // scheme covers both. `insecure:true` is passed on every fetch and
+    // honoured by the launcher only because the bridge IP is on the LAN.
+    return 'https://' + c.bridgeIp + '/api/' + encodeURIComponent(c.username);
   }
 
   /** GET to /api/<user>/<path>. Hue v1 returns either:
@@ -52,6 +59,7 @@
       url: b + path,
       method: 'GET',
       headers: { 'Accept': 'application/json' },
+      insecure: true,
     }).then(function (r) {
       var body = null;
       try { body = r.body ? JSON.parse(r.body) : null; } catch (_) {}
@@ -76,6 +84,7 @@
       headers: { 'Content-Type': 'application/json',
                  'Accept': 'application/json' },
       body: JSON.stringify(jsonBody || {}),
+      insecure: true,
     }).then(function (r) {
       var body = null;
       try { body = r.body ? JSON.parse(r.body) : null; } catch (_) {}
@@ -290,11 +299,12 @@
       var ip = (args && args.ip || '').trim();
       if (!ip) return Promise.resolve(err('ip required'));
       return iappyx.httpClient.fetch({
-        url: 'http://' + ip + '/api',
+        url: 'https://' + ip + '/api',
         method: 'POST',
         headers: { 'Content-Type': 'application/json',
                    'Accept': 'application/json' },
         body: JSON.stringify({ devicetype: 'iappyx#launcher' }),
+        insecure: true,
       }).then(function (r) {
         if (r.status < 200 || r.status >= 300) {
           return err('bridge HTTP ' + r.status);

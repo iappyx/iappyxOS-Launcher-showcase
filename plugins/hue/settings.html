@@ -229,8 +229,9 @@
         // Success — fetch bridge info for the banner.
         try {
           var infoR = await iappyx.httpClient.fetch({
-            url: 'http://' + ip + '/api/' + encodeURIComponent(r.username) + '/config',
+            url: 'https://' + ip + '/api/' + encodeURIComponent(r.username) + '/config',
             headers: { 'Accept': 'application/json' },
+            insecure: true,
           });
           var info = {};
           try { info = JSON.parse(infoR.body) || {}; } catch (_) {}
@@ -264,12 +265,15 @@
   //   { ok:false, error:'link button not pressed' | other reason }
   async function pairOnce(ip) {
     try {
+      // Bridge Pro is HTTPS-only with a self-signed cert. The launcher
+      // honours `insecure:true` because the bridge IP is on the LAN.
       var r = await iappyx.httpClient.fetch({
-        url: 'http://' + ip + '/api',
+        url: 'https://' + ip + '/api',
         method: 'POST',
         headers: { 'Content-Type': 'application/json',
                    'Accept': 'application/json' },
         body: JSON.stringify({ devicetype: 'iappyx#launcher' }),
+        insecure: true,
       });
       if (r.status < 200 || r.status >= 300) {
         return { ok: false, error: 'bridge HTTP ' + r.status };
