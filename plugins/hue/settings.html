@@ -142,8 +142,10 @@
     discoverBtn.disabled = true;
     setStatus('ok', 'Looking for bridges on your network…');
     try {
-      var r = await iappyx.plugin('hue').discover?.()
-        ?? await callDiscoverManually();
+      // Settings pages can't call their own plugin's surface (that
+      // proxy only exists in widgets/wallpapers). Hit Hue's discovery
+      // service directly via httpClient — same result, one HTTP call.
+      var r = await callDiscoverManually();
       if (!r.ok) {
         setStatus('err', 'Discovery failed: ' + r.error);
         return;
