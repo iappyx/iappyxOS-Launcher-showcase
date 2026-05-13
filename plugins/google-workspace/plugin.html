@@ -70,7 +70,23 @@
   }
   function clearCachedToken() { try { iappyx.storage.remove('access'); } catch (_) {} }
 
+  // Inflight de-duplication — same pattern as the M365 plugin. Google
+  // rarely rotates refresh tokens but the defensive pattern is identical.
+  // Prevents two concurrent widgets from each triggering a refresh and
+  // racing on the secureStore write.
+  var _refreshInflight = null;
+
   function refreshAccessToken() {
+    if (_refreshInflight) return _refreshInflight;
+    _refreshInflight = _doRefreshAccessToken();
+    _refreshInflight.then(
+      function () { _refreshInflight = null; },
+      function () { _refreshInflight = null; },
+    );
+    return _refreshInflight;
+  }
+
+  function _doRefreshAccessToken() {
     var c = creds();
     if (!c.clientId || !c.refreshToken) {
       return Promise.resolve({ token: null, error: 'not configured' });
@@ -427,8 +443,12 @@
       var q = (args && args.query) || '';
       if (!q) return Promise.resolve(err('query required'));
       var top = Math.max(1, Math.min(50, (args && args.top) || 25));
+      // Drive query syntax escapes backslash with backslash AND
+      // apostrophe with backslash. Order matters: escape backslash
+      // first so we don't double-escape our own escape characters.
+      var safe = q.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
       var url = 'https://www.googleapis.com/drive/v3/files'
-        + '?q=' + encodeURIComponent("name contains '" + q.replace(/'/g, "\\'") + "' and trashed=false")
+        + '?q=' + encodeURIComponent("name contains '" + safe + "' and trashed=false")
         + '&pageSize=' + top
         + '&fields=files(id,name,size,modifiedTime,createdTime,webViewLink,webContentLink,iconLink,mimeType,parents,owners(displayName))';
       return authedGet(url).then(function (r) {
@@ -474,8 +494,17 @@
       var sheet  = args && args.sheet;
       var range  = args && args.range;
       if (!fileId || !range) return Promise.resolve(err('fileId and range required'));
-      var rangeQuery = sheet ? (encodeURIComponent(sheet) + '!' + encodeURIComponent(range))
-                              : encodeURIComponent(range);
+      // A1 notation requires sheet names to be single-quoted when they
+      // contain spaces, `!`, single quotes, or other special chars.
+      // Always quote (Google accepts quoted names unconditionally) and
+      // escape any embedded single-quote by doubling it.
+      var rangeQuery;
+      if (sheet) {
+        var quotedSheet = "'" + String(sheet).replace(/'/g, "''") + "'";
+        rangeQuery = encodeURIComponent(quotedSheet + '!' + range);
+      } else {
+        rangeQuery = encodeURIComponent(range);
+      }
       var url = 'https://sheets.googleapis.com/v4/spreadsheets/'
         + encodeURIComponent(fileId)
         + '/values/' + rangeQuery

@@ -77,20 +77,31 @@
   function asPullRequest(raw) {
     if (!raw) return null;
     var repo = '';
+    var fromSearch = false;
     if (raw.repository_url) {
       // search API gives repository_url like https://api.github.com/repos/owner/name
       var parts = raw.repository_url.split('/');
       repo = parts.slice(-2).join('/');
+      fromSearch = true;  // search payload lacks PR-specific fields
     } else if (raw.base && raw.base.repo) {
       repo = raw.base.repo.full_name;
     }
+    // mergeable / mergeable_state ONLY exist on the dedicated PR API
+    // (/repos/:owner/:repo/pulls/:n). The search-issues endpoint
+    // returns the issue shape — both fields are undefined and the
+    // naive `!== 'dirty' && !== false` check evaluates true for
+    // every result. Surface `null` from search results so the widget
+    // can render "merge state unknown" instead of falsely "ready".
+    var mergeable = fromSearch
+      ? null
+      : (raw.mergeable_state !== 'dirty' && raw.mergeable !== false);
     return {
       repo: repo,
       number: raw.number,
       title: raw.title || '',
       author: raw.user && raw.user.login || '',
       draft: !!raw.draft,
-      mergeable: raw.mergeable_state !== 'dirty' && raw.mergeable !== false,
+      mergeable: mergeable,
       state: raw.state || 'open',
       createdAt: raw.created_at || null,
       updatedAt: raw.updated_at || null,

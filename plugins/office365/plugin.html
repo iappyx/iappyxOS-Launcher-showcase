@@ -82,7 +82,26 @@
    *  endpoint accepts x-www-form-urlencoded. invalid_grant means the
    *  refresh token has been revoked / expired — surface so the user
    *  re-authorises. */
+  // Inflight de-duplication: Microsoft rotates the refresh token on
+  // every refresh. If two widgets call Graph in the same tick and both
+  // trigger refresh, the second POST invalidates the first — both end
+  // up with revoked refresh tokens and the user has to re-auth. The
+  // first concurrent caller wins; subsequent callers await the same
+  // promise and get the same fresh access token.
+  var _refreshInflight = null;
+
   function refreshAccessToken() {
+    if (_refreshInflight) return _refreshInflight;
+    _refreshInflight = _doRefreshAccessToken();
+    // Clear the slot once settled so subsequent (post-expiry) refreshes work.
+    _refreshInflight.then(
+      function () { _refreshInflight = null; },
+      function () { _refreshInflight = null; },
+    );
+    return _refreshInflight;
+  }
+
+  function _doRefreshAccessToken() {
     var c = creds();
     if (!c.clientId || !c.refreshToken) {
       return Promise.resolve({ token: null, error: 'not configured' });
@@ -130,7 +149,17 @@
       return iappyx.httpClient.fetch({
         url: GRAPH_BASE + path,
         method: 'GET',
-        headers: { 'Authorization': 'Bearer ' + a.token, 'Accept': 'application/json' },
+        headers: {
+          'Authorization': 'Bearer ' + a.token,
+          'Accept': 'application/json',
+          // Force UTC times across all calendarView responses so
+          // asEvent's `+ 'Z'` suffix is unambiguously correct.
+          // Without this, Graph may return times in the user's
+          // default time zone with a non-UTC timeZone field —
+          // appending Z would mis-label them as UTC and the widget
+          // would render the event at the wrong wall-clock time.
+          'Prefer': 'outlook.timezone="UTC"',
+        },
       }).then(function (r) {
         var parsed = null;
         try { parsed = r.body ? JSON.parse(r.body) : null; } catch (_) {}

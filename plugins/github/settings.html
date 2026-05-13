@@ -130,7 +130,11 @@
     var tok = tokField.value.trim();
     if (!tok) { setStatus('err', 'Paste a token first.'); return; }
     iappyx.secureStore.set('token', tok);
-    // Cache login so recentEvents doesn't need a round-trip on every call.
+    // Invalidate the cached `login` BEFORE re-probing /user. If the
+    // user pasted a token for a different GitHub account, the cached
+    // login from the old account must not be re-used. The /user call
+    // below repopulates the cache with the new account's login.
+    iappyx.secureStore.remove('login');
     try {
       var r = await iappyx.httpClient.fetch({
         url: 'https://api.github.com/user',
