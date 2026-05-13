@@ -1,0 +1,436 @@
+<!doctype html>
+<!--
+  Philips Hue plugin — runtime.
+
+  Pure local-network plugin. The bridge runs at `http://<lan-ip>/api/...`
+  and accepts plain JSON. There is no cloud, no OAuth, no client_secret.
+  Auth is a username obtained during a one-time button-press pairing
+  (see settings.html); usernames don't expire.
+
+  Storage:
+    secureStore:  username, bridgeIp
+    storage:      (none)
+
+  Network restriction (manifest): "trusted" — the bridge is by definition
+  only reachable on the home LAN, so a restricted plugin is correct.
+  Bearer tokens never leave the device on a hostile network.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Hue plugin</title>
+</head>
+<body>
+<script>
+(function () {
+  'use strict';
+
+  function ok(extra)    { return Object.assign({ ok: true }, extra || {}); }
+  function err(message) { return { ok: false, error: message }; }
+
+  function creds() {
+    return {
+      bridgeIp: iappyx.secureStore.get('bridgeIp') || '',
+      username: iappyx.secureStore.get('username') || '',
+    };
+  }
+
+  function base() {
+    var c = creds();
+    if (!c.bridgeIp || !c.username) return null;
+    return 'http://' + c.bridgeIp + '/api/' + encodeURIComponent(c.username);
+  }
+
+  /** GET to /api/<user>/<path>. Hue v1 returns either:
+   *   - A success object/array (the data), or
+   *   - An array of [{error:{type, address, description}}] for auth/path errors.
+   *  We detect that and surface the description as the plugin error. */
+  function get(path) {
+    var b = base();
+    if (b === null) return Promise.resolve({ error: 'not configured' });
+    return iappyx.httpClient.fetch({
+      url: b + path,
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    }).then(function (r) {
+      var body = null;
+      try { body = r.body ? JSON.parse(r.body) : null; } catch (_) {}
+      var hueErr = detectHueError(body);
+      if (hueErr) return { error: hueErr };
+      if (r.status < 200 || r.status >= 300) {
+        return { error: 'bridge HTTP ' + r.status };
+      }
+      return { body: body };
+    });
+  }
+
+  /** PUT JSON to /api/<user>/<path>. Hue returns an array of
+   *  [{success:{...}}|{error:{...}}] per field; we treat ANY error as
+   *  a failure (it's almost always a typo'd id or unreachable light). */
+  function put(path, jsonBody) {
+    var b = base();
+    if (b === null) return Promise.resolve({ error: 'not configured' });
+    return iappyx.httpClient.fetch({
+      url: b + path,
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json',
+                 'Accept': 'application/json' },
+      body: JSON.stringify(jsonBody || {}),
+    }).then(function (r) {
+      var body = null;
+      try { body = r.body ? JSON.parse(r.body) : null; } catch (_) {}
+      var hueErr = detectHueError(body);
+      if (hueErr) return { error: hueErr };
+      if (r.status < 200 || r.status >= 300) {
+        return { error: 'bridge HTTP ' + r.status };
+      }
+      return { body: body };
+    });
+  }
+
+  /** Hue's "I had a problem" replies are always an array of objects,
+   *  each with either a `success` or `error` key. Scan for the first
+   *  error and surface its description. */
+  function detectHueError(body) {
+    if (!Array.isArray(body)) return null;
+    for (var i = 0; i < body.length; i++) {
+      var entry = body[i];
+      if (entry && entry.error) {
+        return entry.error.description || ('hue error ' + entry.error.type);
+      }
+    }
+    return null;
+  }
+
+  // ── Hex → CIE 1931 xy chromaticity ───────────────────────────
+  // Hue lights use the xy color space. Widget authors will want to set
+  // colors via #RRGGBB; this is the standard sRGB→XYZ→xyY conversion.
+  function hexToXy(hex) {
+    var m = String(hex || '').replace('#', '').trim();
+    if (m.length === 3) m = m[0]+m[0]+m[1]+m[1]+m[2]+m[2];
+    if (m.length !== 6) return null;
+    var r = parseInt(m.slice(0, 2), 16) / 255;
+    var g = parseInt(m.slice(2, 4), 16) / 255;
+    var b = parseInt(m.slice(4, 6), 16) / 255;
+    function gamma(v) {
+      return v > 0.04045 ? Math.pow((v + 0.055) / 1.055, 2.4) : v / 12.92;
+    }
+    r = gamma(r); g = gamma(g); b = gamma(b);
+    // Wide gamut RGB → XYZ matrix used by Hue Bridge.
+    var X = r * 0.664511 + g * 0.154324 + b * 0.162028;
+    var Y = r * 0.283881 + g * 0.668433 + b * 0.047685;
+    var Z = r * 0.000088 + g * 0.072310 + b * 0.986039;
+    var sum = X + Y + Z;
+    if (sum === 0) return [0, 0];
+    return [X / sum, Y / sum];
+  }
+
+  /** Translate the widget-friendly args (on, bri, hue, sat, ct, hex,
+   *  transitiontime) into the body Hue expects. Strips undefined fields
+   *  so we don't accidentally set hue=0 when caller only wanted to flip
+   *  the on bit. */
+  function buildStateBody(args) {
+    var body = {};
+    if (args == null) return body;
+    if (args.on != null) body.on = !!args.on;
+    if (args.bri != null) body.bri = clamp(args.bri | 0, 1, 254);
+    if (args.hue != null) body.hue = clamp(args.hue | 0, 0, 65535);
+    if (args.sat != null) body.sat = clamp(args.sat | 0, 0, 254);
+    if (args.ct != null) body.ct = clamp(args.ct | 0, 153, 500);
+    if (args.hex) {
+      var xy = hexToXy(args.hex);
+      if (xy) body.xy = xy;
+    } else if (Array.isArray(args.xy) && args.xy.length === 2) {
+      body.xy = [Number(args.xy[0]), Number(args.xy[1])];
+    }
+    if (args.transitiontime != null) {
+      body.transitiontime = Math.max(0, args.transitiontime | 0);
+    }
+    return body;
+  }
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  // ── shape adapters ───────────────────────────────────────────
+  function asLight(id, raw) {
+    if (!raw) return null;
+    var s = raw.state || {};
+    return {
+      id: String(id),
+      name: raw.name || '',
+      on: !!s.on,
+      bri: s.bri == null ? null : s.bri,
+      hue: s.hue == null ? null : s.hue,
+      sat: s.sat == null ? null : s.sat,
+      ct:  s.ct  == null ? null : s.ct,
+      xy:  Array.isArray(s.xy) ? s.xy : null,
+      colormode: s.colormode || null,
+      reachable: s.reachable !== false,
+      type: raw.type || '',
+      model: raw.modelid || '',
+      manufacturer: raw.manufacturername || '',
+      uniqueid: raw.uniqueid || '',
+    };
+  }
+
+  function asGroup(id, raw) {
+    if (!raw) return null;
+    var s = raw.state || {};
+    var a = raw.action || {};
+    return {
+      id: String(id),
+      name: raw.name || '',
+      type: raw.type || 'LightGroup',
+      class: raw['class'] || null,
+      lights: Array.isArray(raw.lights) ? raw.lights.map(String) : [],
+      sensors: Array.isArray(raw.sensors) ? raw.sensors.map(String) : [],
+      state: { any_on: !!s.any_on, all_on: !!s.all_on },
+      action: {
+        on: !!a.on,
+        bri: a.bri == null ? null : a.bri,
+        hue: a.hue == null ? null : a.hue,
+        sat: a.sat == null ? null : a.sat,
+        ct:  a.ct  == null ? null : a.ct,
+        xy:  Array.isArray(a.xy) ? a.xy : null,
+        colormode: a.colormode || null,
+        scene: a.scene || null,
+      },
+    };
+  }
+
+  function asScene(id, raw) {
+    if (!raw) return null;
+    return {
+      id: String(id),
+      name: raw.name || '',
+      group: raw.group || null,
+      lights: Array.isArray(raw.lights) ? raw.lights.map(String) : [],
+      owner: raw.owner || '',
+      recycle: !!raw.recycle,
+      picture: raw.picture || '',
+      lastupdated: raw.lastupdated || null,
+    };
+  }
+
+  function asSensor(id, raw) {
+    if (!raw) return null;
+    return {
+      id: String(id),
+      name: raw.name || '',
+      type: raw.type || '',
+      modelid: raw.modelid || '',
+      manufacturername: raw.manufacturername || '',
+      productname: raw.productname || '',
+      state: raw.state || {},
+      config: raw.config || {},
+    };
+  }
+
+  // ── exposed methods ──────────────────────────────────────────
+  iappyx.plugin.export({
+
+    isConfigured: function () {
+      var c = creds();
+      var configured = !!(c.bridgeIp && c.username);
+      return ok({
+        configured: configured,
+        bridgeIp: c.bridgeIp,
+        bridgeName: iappyx.secureStore.get('bridgeName') || '',
+      });
+    },
+
+    bridgeInfo: function () {
+      return get('/config').then(function (r) {
+        if (r.error) return err(r.error);
+        var b = r.body || {};
+        // Cache the name so isConfigured() can surface it without a call.
+        if (b.name) iappyx.secureStore.set('bridgeName', b.name);
+        return ok({
+          name: b.name || '',
+          modelid: b.modelid || '',
+          swversion: b.swversion || '',
+          apiversion: b.apiversion || '',
+          mac: b.mac || '',
+          ipaddress: b.ipaddress || '',
+          bridgeid: b.bridgeid || '',
+          timezone: b.timezone || '',
+        });
+      });
+    },
+
+    /** Hue's official discovery service. Returns ALL bridges Philips
+     *  has seen on the same public IP — usually exactly one for a home,
+     *  more if you have multiple bridges or a complicated network. Hits
+     *  the internet, so only useful during initial pairing (when the
+     *  plugin can't yet talk to the local bridge). */
+    discover: function () {
+      return iappyx.httpClient.fetch({
+        url: 'https://discovery.meethue.com/',
+        method: 'GET',
+        headers: { 'Accept': 'application/json' },
+      }).then(function (r) {
+        var body = [];
+        try { body = JSON.parse(r.body) || []; } catch (_) {}
+        if (r.status < 200 || r.status >= 300) {
+          return err('discovery HTTP ' + r.status);
+        }
+        var bridges = body.map(function (b) {
+          return { id: b.id || '', ip: b.internalipaddress || '', port: b.port || 443 };
+        }).filter(function (b) { return !!b.ip; });
+        return ok({ bridges: bridges });
+      });
+    },
+
+    /** Try to pair with the bridge at the given IP. The user must have
+     *  pressed the link button on the bridge within the last ~30 seconds.
+     *  On success: stores username + IP, returns username.
+     *  On "link button not pressed": returns
+     *  {ok:false, error:'link button not pressed'} so the caller can poll. */
+    pair: function (args) {
+      var ip = (args && args.ip || '').trim();
+      if (!ip) return Promise.resolve(err('ip required'));
+      return iappyx.httpClient.fetch({
+        url: 'http://' + ip + '/api',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json',
+                   'Accept': 'application/json' },
+        body: JSON.stringify({ devicetype: 'iappyx#launcher' }),
+      }).then(function (r) {
+        if (r.status < 200 || r.status >= 300) {
+          return err('bridge HTTP ' + r.status);
+        }
+        var body = [];
+        try { body = JSON.parse(r.body) || []; } catch (_) {}
+        if (!Array.isArray(body) || body.length === 0) return err('empty reply');
+        var first = body[0];
+        if (first.error) {
+          // type 101 = link button not pressed — caller can keep polling.
+          return err(first.error.description || ('error ' + first.error.type));
+        }
+        if (first.success && first.success.username) {
+          iappyx.secureStore.set('username', first.success.username);
+          iappyx.secureStore.set('bridgeIp', ip);
+          return ok({ username: first.success.username });
+        }
+        return err('unexpected pairing reply');
+      });
+    },
+
+    lights: function () {
+      return get('/lights').then(function (r) {
+        if (r.error) return err(r.error);
+        var out = [];
+        var b = r.body || {};
+        for (var id in b) {
+          if (Object.prototype.hasOwnProperty.call(b, id)) {
+            var x = asLight(id, b[id]); if (x) out.push(x);
+          }
+        }
+        return ok({ lights: out });
+      });
+    },
+
+    groups: function () {
+      return get('/groups').then(function (r) {
+        if (r.error) return err(r.error);
+        var out = [];
+        var b = r.body || {};
+        for (var id in b) {
+          if (Object.prototype.hasOwnProperty.call(b, id)) {
+            var x = asGroup(id, b[id]); if (x) out.push(x);
+          }
+        }
+        return ok({ groups: out });
+      });
+    },
+
+    scenes: function (args) {
+      var filterGroup = args && args.groupId ? String(args.groupId) : null;
+      return get('/scenes').then(function (r) {
+        if (r.error) return err(r.error);
+        var out = [];
+        var b = r.body || {};
+        for (var id in b) {
+          if (!Object.prototype.hasOwnProperty.call(b, id)) continue;
+          var x = asScene(id, b[id]);
+          if (!x) continue;
+          if (filterGroup != null && x.group !== filterGroup) continue;
+          out.push(x);
+        }
+        return ok({ scenes: out });
+      });
+    },
+
+    sensors: function () {
+      return get('/sensors').then(function (r) {
+        if (r.error) return err(r.error);
+        var out = [];
+        var b = r.body || {};
+        for (var id in b) {
+          if (Object.prototype.hasOwnProperty.call(b, id)) {
+            var x = asSensor(id, b[id]); if (x) out.push(x);
+          }
+        }
+        return ok({ sensors: out });
+      });
+    },
+
+    setLight: function (args) {
+      var id = args && args.id;
+      if (!id) return Promise.resolve(err('id required'));
+      return put('/lights/' + encodeURIComponent(id) + '/state',
+                 buildStateBody(args)).then(function (r) {
+        if (r.error) return err(r.error);
+        return ok({});
+      });
+    },
+
+    setGroup: function (args) {
+      var id = args && args.id;
+      if (!id) return Promise.resolve(err('id required'));
+      return put('/groups/' + encodeURIComponent(id) + '/action',
+                 buildStateBody(args)).then(function (r) {
+        if (r.error) return err(r.error);
+        return ok({});
+      });
+    },
+
+    /** Read current any_on for the group, PUT the inverse. One round-trip
+     *  for "tap to toggle the kitchen" tiles. */
+    toggleGroup: function (args) {
+      var id = args && args.id;
+      if (!id) return Promise.resolve(err('id required'));
+      return get('/groups/' + encodeURIComponent(id)).then(function (r) {
+        if (r.error) return err(r.error);
+        var state = (r.body && r.body.state) || {};
+        var body = { on: !state.any_on };
+        if (args && args.transitiontime != null) {
+          body.transitiontime = Math.max(0, args.transitiontime | 0);
+        }
+        return put('/groups/' + encodeURIComponent(id) + '/action', body)
+          .then(function (rr) {
+            if (rr.error) return err(rr.error);
+            return ok({ on: body.on });
+          });
+      });
+    },
+
+    /** Activate a saved scene. groupId defaults to "0" (all lights);
+     *  passing the scene's owning group is the recommended pattern. */
+    recallScene: function (args) {
+      var id = args && args.id;
+      if (!id) return Promise.resolve(err('id required'));
+      var groupId = (args && args.groupId) ? String(args.groupId) : '0';
+      return put('/groups/' + encodeURIComponent(groupId) + '/action',
+                 { scene: String(id) }).then(function (r) {
+        if (r.error) return err(r.error);
+        return ok({});
+      });
+    },
+  });
+
+  iappyx.plugin.log('hue plugin loaded');
+})();
+</script>
+</body>
+</html>

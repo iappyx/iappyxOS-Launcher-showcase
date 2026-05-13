@@ -1,0 +1,6 @@
+{
+  "title": "Philips Hue",
+  "description": "Control your Hue Bridge directly from widgets and wallpapers. Lights, rooms, scenes, sensors. Surface via iappyx.plugin('hue').*. Pure local-network — no cloud, no OAuth. Defaults to trusted-Wi-Fi-only so credentials never leave the device on a hostile network.",
+  "author": "iappyx",
+  "added": "2026-05-13"
+}

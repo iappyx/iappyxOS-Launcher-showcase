@@ -8,6 +8,7 @@
   "background": false,
   "capabilities": ["http", "secureStore", "scheduler"],
   "settingsUi": "settings.html",
+  "defaultNetworkRestriction": "trusted",
   "exposes": [
     { "name": "isConfigured", "args": {} },
     { "name": "ping",         "args": {} },

@@ -1,0 +1,307 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Configure Philips Hue</title>
+  <style>
+    :root { --bg:#0d0d12; --text:#ECECEC; --hint:#8E8E97; --line:#2a2a36;
+            --accent:#0096D6; --error:#FF5252; --ok:#66BB6A; }
+    *{box-sizing:border-box} html,body{margin:0;padding:0;height:100%;
+      background:var(--bg);color:var(--text);
+      font:15px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text",Roboto,sans-serif}
+    .wrap{padding:20px;padding-top:max(20px,env(safe-area-inset-top));
+      padding-bottom:max(20px,env(safe-area-inset-bottom));max-width:640px;margin:0 auto}
+    h1{font-size:22px;margin:0 0 4px}
+    .sub{color:var(--hint);font-size:13px;margin-bottom:18px}
+    .field{margin-bottom:16px}
+    label{display:block;color:var(--hint);font-size:12px;text-transform:uppercase;
+      letter-spacing:.07em;margin-bottom:6px}
+    input[type=text]{width:100%;background:#0a0a10;
+      color:var(--text);border:1px solid var(--line);border-radius:10px;
+      padding:12px 14px;font:inherit;font-family:"SF Mono","Roboto Mono",ui-monospace,monospace;font-size:14px}
+    input:focus{outline:2px solid var(--accent);border-color:transparent}
+    .row{display:flex;gap:10px;margin-top:14px}
+    button{flex:1;background:transparent;color:var(--text);border:1px solid var(--line);
+      border-radius:10px;padding:12px;font:inherit;cursor:pointer}
+    button.primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+    button.danger{color:var(--error);border-color:rgba(255,82,82,.4)}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .status{margin-top:14px;padding:10px 12px;border-radius:8px;font-size:13px;display:none}
+    .status.ok{background:rgba(102,187,106,.15);color:var(--ok);
+      border:1px solid rgba(102,187,106,.4);display:block}
+    .status.err{background:rgba(255,82,82,.10);color:var(--error);
+      border:1px solid rgba(255,82,82,.4);display:block}
+    .hint{color:var(--hint);font-size:12px;line-height:1.5;margin-top:6px}
+    .pair-pane{margin-top:18px;padding:18px;background:#0a0a10;
+      border:1px solid var(--line);border-radius:10px;display:none}
+    .pair-pane.active{display:block}
+    .pair-pane p{margin:0 0 10px}
+    .countdown{font-family:"SF Mono","Roboto Mono",ui-monospace,monospace;
+      font-size:28px;color:var(--accent);text-align:center;margin:14px 0;font-weight:700}
+    .poll{color:var(--hint);font-size:12px;display:flex;align-items:center;gap:8px;justify-content:center}
+    .poll::before{content:"";width:8px;height:8px;border-radius:50%;
+      background:var(--accent);animation:pulse 1.2s ease-in-out infinite}
+    @keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}
+    .connected-banner{margin-bottom:14px;padding:12px 14px;
+      background:rgba(102,187,106,.10);border:1px solid rgba(102,187,106,.35);
+      border-radius:10px;color:var(--ok);font-size:13px;display:none;line-height:1.5}
+    .connected-banner.show{display:block}
+    .bridge-list{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+    .bridge-list button{flex:0 0 auto;text-align:left;padding:10px 14px;font-size:14px}
+    .lit-illustration{display:flex;align-items:center;gap:14px;margin-bottom:10px}
+    .lit-illustration .dot{width:18px;height:18px;border-radius:50%;
+      background:var(--accent);box-shadow:0 0 16px var(--accent)}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Philips Hue</h1>
+  <p class="sub">Connect to your Hue Bridge over the local network. The setup is a single physical button press on the bridge — no cloud, no OAuth.</p>
+
+  <div id="connected-banner" class="connected-banner"></div>
+
+  <div class="field">
+    <label for="bridge-ip">Bridge IP address</label>
+    <input id="bridge-ip" type="text" autocomplete="off" autocapitalize="off" autocorrect="off"
+           placeholder="e.g. 192.168.1.42" />
+    <p class="hint">Tap <em>Find my bridge</em> to auto-detect, or look it up in the Hue app (Settings → My Hue System → Bridge → about).</p>
+  </div>
+
+  <div class="row">
+    <button id="discover-btn">Find my bridge</button>
+    <button id="pair-btn" class="primary">Pair with bridge</button>
+  </div>
+
+  <div id="bridge-list" class="bridge-list"></div>
+
+  <div id="pair-pane" class="pair-pane">
+    <div class="lit-illustration">
+      <div class="dot"></div>
+      <div>
+        <strong>Now press the round button on your Hue Bridge.</strong>
+        <div class="hint">It's the big silver button on top.</div>
+      </div>
+    </div>
+    <div class="countdown" id="countdown">30</div>
+    <div class="poll" id="poll-status">Waiting for the button press…</div>
+  </div>
+
+  <div id="status" class="status"></div>
+
+  <div class="row" style="margin-top:24px">
+    <button id="disconnect-btn" class="danger">Disconnect</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var ipField        = document.getElementById('bridge-ip');
+  var discoverBtn    = document.getElementById('discover-btn');
+  var pairBtn        = document.getElementById('pair-btn');
+  var disconnectBtn  = document.getElementById('disconnect-btn');
+  var status         = document.getElementById('status');
+  var banner         = document.getElementById('connected-banner');
+  var bridgeList     = document.getElementById('bridge-list');
+  var pairPane       = document.getElementById('pair-pane');
+  var countdownEl    = document.getElementById('countdown');
+  var pollEl         = document.getElementById('poll-status');
+
+  ipField.value = iappyx.secureStore.get('bridgeIp') || '';
+  refreshBanner();
+
+  function refreshBanner() {
+    var ip = iappyx.secureStore.get('bridgeIp');
+    var user = iappyx.secureStore.get('username');
+    var name = iappyx.secureStore.get('bridgeName');
+    if (ip && user) {
+      banner.classList.add('show');
+      banner.innerHTML = '<strong>Connected.</strong> '
+        + (name ? 'Bridge "' + escapeHtml(name) + '" at ' : 'Bridge at ')
+        + '<code>' + escapeHtml(ip) + '</code>.<br>'
+        + 'Tap <em>Disconnect</em> to remove the saved credentials.';
+    } else {
+      banner.classList.remove('show');
+    }
+  }
+
+  function setStatus(kind, message) {
+    status.className = 'status ' + kind;
+    status.textContent = message;
+  }
+
+  function escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, function (c) {
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+    });
+  }
+
+  discoverBtn.addEventListener('click', async function () {
+    discoverBtn.disabled = true;
+    setStatus('ok', 'Looking for bridges on your network…');
+    try {
+      var r = await iappyx.plugin('hue').discover?.()
+        ?? await callDiscoverManually();
+      if (!r.ok) {
+        setStatus('err', 'Discovery failed: ' + r.error);
+        return;
+      }
+      var bridges = r.bridges || [];
+      bridgeList.innerHTML = '';
+      if (bridges.length === 0) {
+        setStatus('err', "No bridges found by Philips' discovery service. " +
+                         "If your bridge is online but unreachable from outside, " +
+                         "type the IP manually (Hue app → Settings → My Hue System).");
+        return;
+      }
+      if (bridges.length === 1) {
+        ipField.value = bridges[0].ip;
+        setStatus('ok', 'Found bridge at ' + bridges[0].ip + '. Tap "Pair with bridge".');
+        return;
+      }
+      setStatus('ok', 'Found ' + bridges.length + ' bridges — pick one:');
+      bridges.forEach(function (b) {
+        var btn = document.createElement('button');
+        btn.textContent = b.ip + (b.id ? ' (' + b.id + ')' : '');
+        btn.addEventListener('click', function () {
+          ipField.value = b.ip;
+          bridgeList.innerHTML = '';
+          setStatus('ok', 'Selected ' + b.ip + '. Tap "Pair with bridge".');
+        });
+        bridgeList.appendChild(btn);
+      });
+    } catch (e) {
+      setStatus('err', 'Network error: ' + ((e && e.message) || e));
+    } finally {
+      discoverBtn.disabled = false;
+    }
+  });
+
+  // Fallback when this settings page isn't loaded inside our plugin
+  // host (i.e. plugin not yet installed or imported), call the discovery
+  // endpoint directly via httpClient.
+  async function callDiscoverManually() {
+    var r = await iappyx.httpClient.fetch({
+      url: 'https://discovery.meethue.com/',
+      headers: { 'Accept': 'application/json' },
+    });
+    if (r.status < 200 || r.status >= 300) {
+      return { ok: false, error: 'discovery HTTP ' + r.status };
+    }
+    var body = [];
+    try { body = JSON.parse(r.body) || []; } catch (_) {}
+    return { ok: true, bridges: body.map(function (b) {
+      return { id: b.id || '', ip: b.internalipaddress || '' };
+    }).filter(function (b) { return !!b.ip; }) };
+  }
+
+  // Cancellation token — clicking Pair again or Disconnect mid-poll
+  // abandons the previous loop.
+  var pollSession = 0;
+
+  pairBtn.addEventListener('click', async function () {
+    var ip = ipField.value.trim();
+    if (!ip) { setStatus('err', 'Enter a bridge IP first.'); return; }
+    var sess = ++pollSession;
+
+    discoverBtn.disabled = true; pairBtn.disabled = true;
+    pairPane.classList.add('active');
+    setStatus('', '');
+
+    // Poll the bridge for up to 30s. The user must press the link
+    // button during this window.
+    var startedAt = Date.now();
+    var deadline = startedAt + 30_000;
+
+    while (Date.now() < deadline) {
+      if (sess !== pollSession) return;
+      var remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      countdownEl.textContent = String(remaining);
+
+      var r = await pairOnce(ip);
+      if (sess !== pollSession) return;
+
+      if (r.ok) {
+        // Success — fetch bridge info for the banner.
+        try {
+          var infoR = await iappyx.httpClient.fetch({
+            url: 'http://' + ip + '/api/' + encodeURIComponent(r.username) + '/config',
+            headers: { 'Accept': 'application/json' },
+          });
+          var info = {};
+          try { info = JSON.parse(infoR.body) || {}; } catch (_) {}
+          if (info.name) iappyx.secureStore.set('bridgeName', info.name);
+        } catch (_) { /* non-fatal */ }
+        pairPane.classList.remove('active');
+        setStatus('ok', 'Connected.');
+        refreshBanner();
+        discoverBtn.disabled = false; pairBtn.disabled = false;
+        return;
+      }
+      // Specific error text from Hue when button isn't pressed:
+      //   "link button not pressed"
+      // Anything else (network unreachable, wrong IP) is terminal.
+      if (!/link button/i.test(r.error || '')) {
+        pairPane.classList.remove('active');
+        setStatus('err', 'Pairing failed: ' + r.error);
+        discoverBtn.disabled = false; pairBtn.disabled = false;
+        return;
+      }
+      // Still waiting — sleep 2s and retry.
+      await new Promise(function (res) { setTimeout(res, 2000); });
+    }
+    pairPane.classList.remove('active');
+    setStatus('err', "Didn't see the link-button press in time. Try again.");
+    discoverBtn.disabled = false; pairBtn.disabled = false;
+  });
+
+  // Single POST /api with devicetype. Returns either:
+  //   { ok:true, username:'...' }
+  //   { ok:false, error:'link button not pressed' | other reason }
+  async function pairOnce(ip) {
+    try {
+      var r = await iappyx.httpClient.fetch({
+        url: 'http://' + ip + '/api',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json',
+                   'Accept': 'application/json' },
+        body: JSON.stringify({ devicetype: 'iappyx#launcher' }),
+      });
+      if (r.status < 200 || r.status >= 300) {
+        return { ok: false, error: 'bridge HTTP ' + r.status };
+      }
+      var body = [];
+      try { body = JSON.parse(r.body) || []; } catch (_) {}
+      if (!Array.isArray(body) || body.length === 0) {
+        return { ok: false, error: 'empty reply' };
+      }
+      var first = body[0];
+      if (first.error) {
+        return { ok: false, error: first.error.description || ('error ' + first.error.type) };
+      }
+      if (first.success && first.success.username) {
+        iappyx.secureStore.set('username', first.success.username);
+        iappyx.secureStore.set('bridgeIp', ip);
+        return { ok: true, username: first.success.username };
+      }
+      return { ok: false, error: 'unexpected reply' };
+    } catch (e) {
+      return { ok: false, error: 'Network error: ' + ((e && e.message) || e) };
+    }
+  }
+
+  disconnectBtn.addEventListener('click', function () {
+    pollSession++;
+    iappyx.secureStore.remove('username');
+    iappyx.secureStore.remove('bridgeIp');
+    iappyx.secureStore.remove('bridgeName');
+    pairPane.classList.remove('active');
+    refreshBanner();
+    setStatus('ok', 'Disconnected. (Note: your bridge still has the saved username — Hue keeps usernames until you delete them via the Hue app.)');
+  });
+})();
+</script>
+</body>
+</html>
