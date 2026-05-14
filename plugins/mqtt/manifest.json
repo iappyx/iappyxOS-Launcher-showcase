@@ -1,0 +1,24 @@
+{
+  "id": "mqtt",
+  "name": "MQTT",
+  "description": "Subscribe and publish to an MQTT broker (Mosquitto, EMQX, HiveMQ, Zigbee2MQTT, Home Assistant's built-in broker, …) from widgets and wallpapers. Supports plain TCP, TLS, and WebSocket transports. LAN-only by default; self-signed certs accepted for LAN brokers.",
+  "version": "1.0.0",
+  "author": "iappyx",
+  "minLauncher": 1,
+  "background": false,
+  "capabilities": ["mqtt", "secureStore", "storage"],
+  "settingsUi": "settings.html",
+  "defaultNetworkRestriction": "trusted",
+  "exposes": [
+    { "name": "isConfigured", "args": {} },
+    { "name": "status",       "args": {} },
+    { "name": "subscribe",    "args": { "topic": "string", "qos": "int" } },
+    { "name": "unsubscribe",  "args": { "topic": "string" } },
+    { "name": "publish",      "args": { "topic": "string", "payload": "string", "qos": "int", "retained": "bool" } },
+    { "name": "latest",       "args": { "topic": "string" } },
+    { "name": "history",      "args": { "topic": "string", "limit": "int" } },
+    { "name": "_onMqttMessage", "args": { "subId": "string", "topic": "string", "payload": "string", "qos": "int", "retained": "bool", "timestamp": "int" } },
+    { "name": "_onMqttState",   "args": { "connected": "bool", "broker": "string", "timestamp": "int" } }
+  ],
+  "aiPrompt": "iappyx.plugin('mqtt') is a generic MQTT 3.1.1 broker client. Connects to ONE broker (the user's, configured in settings.html) over tcp://, ssl://, ws://, or wss://. Pure local-network by default — network-restricted to trusted Wi-Fi so credentials never leave the device on a hostile network. All methods return Promises that resolve to {ok:true, …} or {ok:false, error:'…'} — never throw. EVENT MODEL — Widgets DO NOT receive push events from MQTT messages; instead they POLL the plugin. The plugin internally subscribes to topics, caches the latest N messages per topic in launcher storage, and widgets call iappyx.plugin('mqtt').latest({topic}) on a 1-5 second timer. This is the right pattern for sensor data (temperature, humidity, occupancy). For real-time alerts (doorbell, motion) the polling latency may be too high — call latest() at 500ms-1s in that case. KEY METHODS — isConfigured() → {ok, configured, broker}. status() → {ok, connected, broker, subscriptions:[{topic, qos}]} for diagnostics. subscribe({topic, qos:0}) → {ok, subId} where topic accepts wildcards `+` (single level) and `#` (multi-level, must be last segment). Idempotent per-topic — calling subscribe twice for `home/temp` increments a refcount so two widgets share one broker subscription. unsubscribe({topic}) → {ok} decrements refcount; broker-side unsub happens at zero. publish({topic, payload, qos:0, retained:false}) → {ok}. latest({topic}) → {ok, message:{topic, payload, qos, retained, timestamp} | null} — returns the most recent message that matched this filter, null if nothing has arrived yet. The topic argument is the EXACT subscription topic (with wildcards if you subscribed with them), not the message's topic. history({topic, limit:20}) → {ok, messages:[…]} ordered newest-first; for widgets that show a feed (last 20 sensor readings). BEST WIDGETS — 'sensor dashboard' (4 tiles polling latest() for temp/humidity/CO2/motion every 2s with sparklines), 'button grid' (NxN tappable tiles that publish() with retained:true on tap — natural fit for Zigbee2MQTT light control), 'event feed' (calls history() at 5s cadence and renders the last 10 messages as a list). Best wallpapers: ambient color tinted by the latest value of a sensor topic, e.g. wallpaper goes warm when room temp is high. ALWAYS subscribe in widget onLoad and store the topic; never call subscribe() from a poll callback or you'll create thousands of subs. Use unsubscribe() in onDestroy. Don't parse JSON payloads inside subscribe() callbacks (there are none — this is poll-based); parse them in latest()'s return path."
+}

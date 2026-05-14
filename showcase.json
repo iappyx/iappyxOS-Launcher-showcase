@@ -591,6 +591,13 @@
       "description": "Self-hosted Unraid server: system stats, Docker containers, parity, VMs, shares. Surface via iappyx.plugin('unraid').*. Pure local-network — no cloud. Requires Unraid 7.0+ (the official GraphQL API) and a server-side API key. Defaults to trusted-Wi-Fi-only so the key never leaves the device on a hostile network.",
       "author": "iappyx",
       "added": "2026-05-14"
+    },
+    {
+      "slug": "mqtt",
+      "title": "MQTT",
+      "description": "Generic MQTT 3.1.1 broker client for widgets and wallpapers. Subscribe + publish over TCP, TLS, or WebSocket. Surface via iappyx.plugin('mqtt').*. Pure local-network by default — credentials never leave the device on a hostile network. Self-signed certs accepted for LAN brokers (Mosquitto on Raspberry Pi, Home Assistant's built-in broker, EMQX in Docker).",
+      "author": "iappyx",
+      "added": "2026-05-14"
     }
   ]
 }

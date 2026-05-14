@@ -1,0 +1,198 @@
+<!doctype html>
+<!--
+  MQTT plugin — settings page.
+
+  Collects: broker URL, username, password, client ID. Test connection
+  tries to connect, waits 3s for confirmation, then disconnects.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Configure MQTT</title>
+  <style>
+    :root { --bg:#0d0d12; --text:#ECECEC; --hint:#8E8E97; --line:#2a2a36;
+            --accent:#A66BFF; --error:#FF5252; --ok:#66BB6A; }
+    *{box-sizing:border-box} html,body{margin:0;padding:0;height:100%;
+      background:var(--bg);color:var(--text);
+      font:15px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text",Roboto,sans-serif}
+    .wrap{padding:20px;padding-top:max(20px,env(safe-area-inset-top));
+      padding-bottom:max(20px,env(safe-area-inset-bottom));max-width:640px;margin:0 auto}
+    h1{font-size:22px;margin:0 0 4px}
+    .sub{color:var(--hint);font-size:13px;margin-bottom:18px}
+    details{background:#0a0a10;border:1px solid var(--line);border-radius:10px;
+      padding:12px 14px;margin-bottom:18px}
+    details summary{cursor:pointer;font-size:13px;color:var(--accent);
+      list-style:none;outline:none}
+    details summary::-webkit-details-marker{display:none}
+    details[open] summary{margin-bottom:8px}
+    details ul{margin:0;padding-left:18px;font-size:13px;line-height:1.55;color:var(--text)}
+    details li{margin-bottom:6px}
+    details code{background:#000;border:1px solid var(--line);padding:1px 5px;
+      border-radius:4px;font-size:11px;word-break:break-all}
+    .field{margin-bottom:16px}
+    label{display:block;color:var(--hint);font-size:12px;text-transform:uppercase;
+      letter-spacing:.07em;margin-bottom:6px}
+    input[type=text],input[type=password]{width:100%;background:#0a0a10;
+      color:var(--text);border:1px solid var(--line);border-radius:10px;
+      padding:12px 14px;font:inherit}
+    input:focus{outline:2px solid var(--accent);border-color:transparent}
+    .row{display:flex;gap:10px;margin-top:18px}
+    button{flex:1;background:transparent;color:var(--text);border:1px solid var(--line);
+      border-radius:10px;padding:12px;font:inherit;cursor:pointer}
+    button.primary{background:var(--accent);color:#000;border-color:var(--accent);font-weight:600}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .status{margin-top:14px;padding:10px 12px;border-radius:8px;font-size:13px;display:none}
+    .status.ok{background:rgba(102,187,106,.15);color:var(--ok);
+      border:1px solid rgba(102,187,106,.4);display:block}
+    .status.err{background:rgba(255,82,82,.10);color:var(--error);
+      border:1px solid rgba(255,82,82,.4);display:block}
+    .hint{color:var(--hint);font-size:12px;line-height:1.5;margin-top:6px}
+    code{background:#0a0a10;padding:1px 6px;border-radius:4px;
+      border:1px solid var(--line);font-size:12px}
+    .checkbox-row{display:flex;align-items:center;gap:8px;margin-bottom:16px}
+    .checkbox-row input{width:auto;margin:0}
+    .checkbox-row label{margin:0;text-transform:none;letter-spacing:0;
+      font-size:13px;color:var(--text)}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>MQTT</h1>
+  <p class="sub">Connect to your MQTT broker. Once configured, widgets can subscribe to topics and publish messages via <code>iappyx.plugin('mqtt').*</code>.</p>
+
+  <details>
+    <summary>URL formats</summary>
+    <ul>
+      <li><code>tcp://192.168.1.10:1883</code> — plain MQTT, default port 1883. Credentials travel cleartext on your LAN.</li>
+      <li><code>ssl://broker.example.com:8883</code> — MQTT over TLS. Default port 8883.</li>
+      <li><code>ws://192.168.1.10:9001</code> — MQTT over WebSocket. Default port 9001 on most brokers (Mosquitto requires a separate listener block in mosquitto.conf).</li>
+      <li><code>wss://broker.example.com:443</code> — MQTT over secure WebSocket. Default port 443 or 8084.</li>
+    </ul>
+  </details>
+
+  <div class="field">
+    <label for="url">Broker URL</label>
+    <input id="url" type="text" autocomplete="off" autocapitalize="off" autocorrect="off"
+           placeholder="tcp://192.168.1.10:1883" />
+    <p class="hint">Include the scheme and port. The plugin is restricted to trusted Wi-Fi by default, so a LAN IP is the typical case.</p>
+  </div>
+
+  <div class="field">
+    <label for="username">Username (optional)</label>
+    <input id="username" type="text" autocomplete="off" autocapitalize="off" autocorrect="off"
+           placeholder="leave blank for anonymous brokers" />
+  </div>
+
+  <div class="field">
+    <label for="password">Password (optional)</label>
+    <input id="password" type="password" autocomplete="off" autocapitalize="off" autocorrect="off"
+           placeholder="stored encrypted on this device" />
+  </div>
+
+  <div class="field">
+    <label for="client-id">Client ID (optional)</label>
+    <input id="client-id" type="text" autocomplete="off" autocapitalize="off" autocorrect="off"
+           placeholder="auto: iappyx-mqtt-<random>" />
+    <p class="hint">Most brokers require unique IDs. Leave blank to auto-generate.</p>
+  </div>
+
+  <div class="checkbox-row">
+    <input id="insecure" type="checkbox">
+    <label for="insecure">Accept self-signed cert (only honoured for LAN brokers on ssl:// or wss://)</label>
+  </div>
+
+  <div class="row">
+    <button id="test-btn">Test connection</button>
+    <button id="save-btn" class="primary">Save</button>
+  </div>
+
+  <div id="status" class="status"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var urlField  = document.getElementById('url');
+  var userField = document.getElementById('username');
+  var pwField   = document.getElementById('password');
+  var cidField  = document.getElementById('client-id');
+  var insField  = document.getElementById('insecure');
+  var testBtn   = document.getElementById('test-btn');
+  var saveBtn   = document.getElementById('save-btn');
+  var status    = document.getElementById('status');
+
+  urlField.value  = iappyx.secureStore.get('url')       || '';
+  userField.value = iappyx.secureStore.get('username')  || '';
+  pwField.value   = iappyx.secureStore.get('password')  || '';
+  cidField.value  = iappyx.secureStore.get('clientId')  || '';
+  insField.checked = iappyx.secureStore.get('insecure') === 'true';
+
+  function setStatus(kind, message) {
+    status.className = 'status ' + kind;
+    status.textContent = message;
+  }
+
+  function readForm() {
+    return {
+      url:      urlField.value.trim(),
+      username: userField.value.trim(),
+      password: pwField.value,
+      clientId: cidField.value.trim(),
+      insecure: !!insField.checked,
+    };
+  }
+
+  testBtn.addEventListener('click', async function () {
+    var f = readForm();
+    if (!f.url) { setStatus('err', 'Enter a broker URL first.'); return; }
+    testBtn.disabled = true; saveBtn.disabled = true;
+    setStatus('ok', 'Connecting…');
+    // Connect, query state to confirm, then disconnect — non-destructive
+    // probe that proves credentials work.
+    try {
+      var r = await iappyx.mqtt.connect({
+        url: f.url,
+        username: f.username || undefined,
+        password: f.password || undefined,
+        clientId: f.clientId || undefined,
+        insecure: f.insecure,
+        cleanSession: true,
+        keepAlive: 30,
+      });
+      if (!r.ok) { setStatus('err', r.error || 'Connect failed.'); return; }
+      // Give the broker a moment in case it sends auth-fail late.
+      await new Promise(function (res) { setTimeout(res, 500); });
+      var s = await iappyx.mqtt.state({});
+      if (s.ok && s.connected) {
+        setStatus('ok', 'Connected to ' + (s.broker || f.url) + '.');
+      } else {
+        setStatus('err', 'Connected then immediately disconnected — bad credentials?');
+      }
+      try { await iappyx.mqtt.disconnect(); } catch (_) {}
+    } catch (e) {
+      setStatus('err', 'Error: ' + ((e && e.message) || e));
+    } finally {
+      testBtn.disabled = false; saveBtn.disabled = false;
+    }
+  });
+
+  saveBtn.addEventListener('click', function () {
+    var f = readForm();
+    if (!f.url) { setStatus('err', 'Enter a broker URL first.'); return; }
+    iappyx.secureStore.set('url',      f.url);
+    iappyx.secureStore.set('username', f.username || '');
+    iappyx.secureStore.set('password', f.password || '');
+    iappyx.secureStore.set('clientId', f.clientId || '');
+    iappyx.secureStore.set('insecure', f.insecure ? 'true' : 'false');
+    setStatus('ok', 'Saved.');
+    setTimeout(function () { iappyx.plugin.close(); }, 400);
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') saveBtn.click();
+  });
+})();
+</script>
+</body>
+</html>

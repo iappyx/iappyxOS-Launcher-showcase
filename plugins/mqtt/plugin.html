@@ -1,0 +1,270 @@
+<!doctype html>
+<!--
+  MQTT plugin — runtime.
+
+  Owns ONE connection to ONE broker. Widgets call iappyx.plugin('mqtt').*
+  to subscribe/publish/poll; the plugin maintains the broker connection
+  and caches the latest message per subscription topic so widgets can
+  poll instead of receiving push events.
+
+  Why polling, not push: widget callbacks via iappyx.plugin('foo').bar()
+  return a Promise (single resolution). There's no way to push repeated
+  events from the plugin back through the iappyxPlugins.invoke channel.
+  So the plugin caches and widgets poll latest() on a 1-5s timer.
+
+  Storage:
+    secureStore: url, username, password, clientId, insecure
+    storage:     (none — message cache is in-memory only, lost on plugin
+                  WebView destroy, which is acceptable for sensor data)
+
+  Network restriction (manifest): "trusted" — most brokers are on the
+  user's LAN. Bearer-style credentials never leave the device on a
+  hostile network.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>MQTT plugin</title>
+</head>
+<body>
+<script>
+(function () {
+  'use strict';
+
+  function ok(extra)    { return Object.assign({ ok: true }, extra || {}); }
+  function err(message) { return { ok: false, error: message }; }
+
+  // ── State ───────────────────────────────────────────────────
+
+  var connecting = false;
+  var connected  = false;
+  var lastBroker = '';
+
+  /** Per-topic refcount. Two widgets subscribing to the same topic
+   *  share one broker-side subscription; only the last unsubscribe
+   *  actually tells the broker to stop sending. */
+  var subRefs = Object.create(null);   // topic → { count, subId, qos }
+
+  /** Per-topic latest message + small history ring. Topic here is the
+   *  SUBSCRIPTION topic (what the caller asked for), which may include
+   *  wildcards. */
+  var latestByTopic  = Object.create(null);
+  var historyByTopic = Object.create(null);
+  var HISTORY_MAX    = 50;
+
+  function creds() {
+    return {
+      url:      iappyx.secureStore.get('url')      || '',
+      username: iappyx.secureStore.get('username') || '',
+      password: iappyx.secureStore.get('password') || '',
+      clientId: iappyx.secureStore.get('clientId') || '',
+      insecure: iappyx.secureStore.get('insecure') === 'true',
+    };
+  }
+
+  function isConfiguredSync() {
+    var c = creds();
+    return !!c.url;
+  }
+
+  // ── Connection management ───────────────────────────────────
+
+  /** Ensure a broker connection exists. Idempotent — repeated calls
+   *  while a connection attempt is in flight wait on the same promise.
+   *  Resolves to {ok} or {ok:false, error}. */
+  var connectPromise = null;
+  function ensureConnected() {
+    if (connected) return Promise.resolve(ok({}));
+    if (connectPromise) return connectPromise;
+    var c = creds();
+    if (!c.url) return Promise.resolve(err('not configured'));
+    connecting = true;
+    connectPromise = iappyx.mqtt.connect({
+      url: c.url,
+      username: c.username || undefined,
+      password: c.password || undefined,
+      clientId: c.clientId || undefined,
+      insecure: c.insecure,
+      cleanSession: true,
+      keepAlive: 60,
+    }).then(function (r) {
+      connecting = false;
+      connectPromise = null;
+      if (r.ok) {
+        connected = true;
+        lastBroker = c.url;
+        // Register a state observer so we know when the connection
+        // drops. Paho auto-reconnects, but we update our local flag.
+        try { iappyx.mqtt.state({ method: '_onMqttState' }); } catch (_) {}
+      }
+      return r;
+    }).catch(function (e) {
+      connecting = false;
+      connectPromise = null;
+      return err((e && e.message) || String(e));
+    });
+    return connectPromise;
+  }
+
+  // ── Exposed methods ────────────────────────────────────────
+
+  iappyx.plugin.export({
+
+    isConfigured: function () {
+      return ok({ configured: isConfiguredSync(), broker: lastBroker || creds().url });
+    },
+
+    /** Diagnostics surface for the settings/status widget. */
+    status: function () {
+      var subs = [];
+      Object.keys(subRefs).forEach(function (topic) {
+        subs.push({ topic: topic, qos: subRefs[topic].qos, refs: subRefs[topic].count });
+      });
+      return ok({
+        connected:     connected,
+        connecting:    connecting,
+        broker:        lastBroker,
+        subscriptions: subs,
+      });
+    },
+
+    /** Subscribe to a topic. Idempotent per topic — repeated calls
+     *  bump a refcount instead of opening another broker subscription. */
+    subscribe: function (args) {
+      var topic = (args && args.topic) || '';
+      var qos   = (args && args.qos != null) ? args.qos : 0;
+      if (!topic) return Promise.resolve(err('topic required'));
+      // Existing subscription: bump and return.
+      var ex = subRefs[topic];
+      if (ex) {
+        ex.count++;
+        return Promise.resolve(ok({ topic: topic, subId: ex.subId, refs: ex.count }));
+      }
+      return ensureConnected().then(function (r) {
+        if (!r.ok) return r;
+        return iappyx.mqtt.subscribe({
+          topic: topic, qos: qos, method: '_onMqttMessage',
+        }).then(function (rr) {
+          if (!rr.ok) return rr;
+          subRefs[topic] = { count: 1, subId: rr.subId, qos: qos };
+          return ok({ topic: topic, subId: rr.subId, refs: 1 });
+        });
+      });
+    },
+
+    unsubscribe: function (args) {
+      var topic = (args && args.topic) || '';
+      if (!topic) return Promise.resolve(err('topic required'));
+      var ex = subRefs[topic];
+      if (!ex) return Promise.resolve(ok({ topic: topic, refs: 0 }));
+      ex.count--;
+      if (ex.count > 0) return Promise.resolve(ok({ topic: topic, refs: ex.count }));
+      // Last consumer — drop the broker-side subscription and forget
+      // the cached messages for this topic.
+      var subId = ex.subId;
+      delete subRefs[topic];
+      delete latestByTopic[topic];
+      delete historyByTopic[topic];
+      return iappyx.mqtt.unsubscribe(subId).then(function () {
+        return ok({ topic: topic, refs: 0 });
+      });
+    },
+
+    publish: function (args) {
+      var topic    = (args && args.topic) || '';
+      var payload  = (args && args.payload != null) ? String(args.payload) : '';
+      var qos      = (args && args.qos != null) ? args.qos : 0;
+      var retained = !!(args && args.retained);
+      if (!topic) return Promise.resolve(err('topic required'));
+      return ensureConnected().then(function (r) {
+        if (!r.ok) return r;
+        return iappyx.mqtt.publish({
+          topic: topic, payload: payload, qos: qos, retained: retained,
+        });
+      });
+    },
+
+    /** Latest message that matched a subscription topic. Topic argument
+     *  is the EXACT subscription topic the caller used (with wildcards
+     *  if any), not a concrete message topic. Returns null if no
+     *  message has arrived yet. */
+    latest: function (args) {
+      var topic = (args && args.topic) || '';
+      if (!topic) return ok({ message: null });
+      return ok({ message: latestByTopic[topic] || null });
+    },
+
+    /** Ring buffer of recent messages for a subscription topic.
+     *  Newest-first. Limit defaults to 20, max 50. */
+    history: function (args) {
+      var topic = (args && args.topic) || '';
+      var limit = Math.max(1, Math.min(HISTORY_MAX, (args && args.limit) || 20));
+      if (!topic) return ok({ messages: [] });
+      var arr = historyByTopic[topic] || [];
+      return ok({ messages: arr.slice(0, limit) });
+    },
+
+    // ── Internal event handlers (invoked by the bridge) ────────
+
+    /** Bridge calls this on every matching broker message. We fan
+     *  out to ALL subscription topics that match (e.g. one message
+     *  on `home/livingroom/temp` matches both `home/+/temp` and
+     *  `home/livingroom/+` if both are subscribed). */
+    _onMqttMessage: function (evt) {
+      if (!evt || !evt.topic) return ok({});
+      var msgTopic = evt.topic;
+      var entry = {
+        topic:     msgTopic,
+        payload:   evt.payload,
+        qos:       evt.qos,
+        retained:  !!evt.retained,
+        timestamp: evt.timestamp || Date.now(),
+      };
+      Object.keys(subRefs).forEach(function (subTopic) {
+        if (!topicMatches(subTopic, msgTopic)) return;
+        latestByTopic[subTopic] = entry;
+        var hist = historyByTopic[subTopic];
+        if (!hist) { hist = []; historyByTopic[subTopic] = hist; }
+        hist.unshift(entry);
+        if (hist.length > HISTORY_MAX) hist.length = HISTORY_MAX;
+      });
+      return ok({});
+    },
+
+    _onMqttState: function (evt) {
+      connected  = !!(evt && evt.connected);
+      lastBroker = (evt && evt.broker) || lastBroker;
+      return ok({});
+    },
+  });
+
+  /** MQTT topic filter matching — same algorithm as the Java side. */
+  function topicMatches(filter, topic) {
+    if (!filter || !topic) return false;
+    if (filter === topic) return true;
+    var f = filter.split('/');
+    var t = topic.split('/');
+    var i = 0;
+    while (i < f.length && i < t.length) {
+      if (f[i] === '#') return true;
+      if (f[i] !== '+' && f[i] !== t[i]) return false;
+      i++;
+    }
+    if (i < f.length && f[i] === '#') return true;
+    return i === f.length && i === t.length;
+  }
+
+  // Try to connect at startup. If credentials aren't set, this fails
+  // gracefully and widget calls trigger another attempt later.
+  if (isConfiguredSync()) {
+    ensureConnected().then(function (r) {
+      if (!r.ok) iappyx.plugin.log('mqtt initial connect failed: ' + r.error);
+      else iappyx.plugin.log('mqtt connected to ' + lastBroker);
+    });
+  } else {
+    iappyx.plugin.log('mqtt not configured yet — open settings');
+  }
+})();
+</script>
+</body>
+</html>

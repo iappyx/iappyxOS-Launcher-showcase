@@ -1,0 +1,6 @@
+{
+  "title": "MQTT",
+  "description": "Generic MQTT 3.1.1 broker client for widgets and wallpapers. Subscribe + publish over TCP, TLS, or WebSocket. Surface via iappyx.plugin('mqtt').*. Pure local-network by default — credentials never leave the device on a hostile network. Self-signed certs accepted for LAN brokers (Mosquitto on Raspberry Pi, Home Assistant's built-in broker, EMQX in a Docker container).",
+  "author": "iappyx",
+  "added": "2026-05-14"
+}
