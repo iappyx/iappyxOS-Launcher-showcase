@@ -403,7 +403,7 @@
           + '  },120);'
           + '});'
           : '')
-      + '})();</script>';
+      + '})();<\/script>';
   }
 
   function triggerHtml(domain, id) {
@@ -415,7 +415,7 @@
       + '<script>(function(){document.getElementById("t").addEventListener("click",function(){'
       + 'iappyx.plugin("home-assistant").call({domain:"' + domain + '",'
       + 'service:"' + service + '",target:{entity_id:' + idJson + '}});'
-      + '});})();</script>';
+      + '});})();<\/script>';
   }
 
   function mediaHtml(id, playing) {
@@ -438,7 +438,7 @@
       + '  iappyx.plugin("home-assistant").call({domain:"media_player",'
       + '    service:"media_next_track",target:{entity_id:' + idJson + '}});'
       + '});'
-      + '})();</script>';
+      + '})();<\/script>';
   }
 
   function climateHtml(id, target) {
@@ -460,7 +460,7 @@
       + '}'
       + 'document.getElementById("m").addEventListener("click",function(){v=Math.max(5,v-1);setIt();});'
       + 'document.getElementById("p").addEventListener("click",function(){v=Math.min(35,v+1);setIt();});'
-      + '})();</script>';
+      + '})();<\/script>';
   }
 
   function escapeHtml(s){
