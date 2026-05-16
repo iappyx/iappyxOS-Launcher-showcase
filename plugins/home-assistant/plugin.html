@@ -306,19 +306,26 @@
         // strong substring match wins over a weak subsequence one,
         // and within equally-good matches the premium domains rank up.
         //
-        // Light groups (Hue/Zigbee2MQTT/light_group platforms) carry an
-        // `entity_id` ATTRIBUTE listing their child entities. We rank
-        // groups above their children AND dedupe: if both a group and
-        // its members match the query, only the group is shown — the
-        // children are noise. Pre-build a child→parent map for that.
+        // Light/switch/cover/media_player groups carry an `entity_id`
+        // ATTRIBUTE listing their child entities. We rank groups above
+        // children AND dedupe: if both a group and its members match
+        // the query, only the group is shown — the children are noise.
+        //
+        // BUT: scenes, automations, and legacy `group.*` entities ALSO
+        // use `entity_id` arrays — semantically "entities this thing
+        // affects," NOT children. Treating them as groups makes scenes
+        // eat their member lights from search results. So we restrict
+        // group-detection to the four domains where parent/child means
+        // what we want.
+        var GROUP_DOMAINS = { light:1, switch:1, cover:1, media_player:1 };
         var childToGroup = {};
         for (var i0 = 0; i0 < entities.length; i0++) {
           var ge = entities[i0];
           if (!ge.attributes || !Array.isArray(ge.attributes.entity_id)) continue;
           var gid = ge.entity_id || '';
-          if (gid.indexOf('.') < 0) continue;
-          // entity_id-attribute appears on lights, switches, covers,
-          // media_players that act as groups. Trust it for any domain.
+          var gdot = gid.indexOf('.');
+          if (gdot < 0) continue;
+          if (!GROUP_DOMAINS[gid.substring(0, gdot)]) continue;
           for (var k = 0; k < ge.attributes.entity_id.length; k++) {
             var child = String(ge.attributes.entity_id[k]);
             childToGroup[child] = gid;
@@ -342,12 +349,13 @@
             fuzzyScore(q, areaId),
           );
           if (matchScore <= 0) continue;
-          // Group bonus: an entity whose attributes carry an
-          // `entity_id` array IS a group. Tiny bonus (15) — enough to
-          // float above siblings with identical match scores but small
-          // enough that a perfect-prefix child still beats a weak-match
-          // parent.
-          var isGroup = !!(e.attributes && Array.isArray(e.attributes.entity_id));
+          // Group bonus: only true for entities in GROUP_DOMAINS
+          // (light/switch/cover/media_player) that carry an
+          // `entity_id` array. Tiny bonus (15) — enough to float above
+          // siblings with identical match scores but small enough that
+          // a perfect-prefix child still beats a weak-match parent.
+          var isGroup = !!GROUP_DOMAINS[domain] &&
+                        !!(e.attributes && Array.isArray(e.attributes.entity_id));
           // Final score = match quality (dominant) + domain bonus +
           // group bonus.
           var score = matchScore + (DOMAIN_RANK[domain] || 0) + (isGroup ? 15 : 0);
