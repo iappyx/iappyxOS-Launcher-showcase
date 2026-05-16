@@ -282,27 +282,70 @@
       var q = String((args && args.query) || '').trim().toLowerCase();
       if (!q) return ok({ results: [] });
       return authedGet('/api/states').then(function (r) {
-        if (r.error || r.status >= 400) return ok({ results: [] });
+        if (r.error) return err(r.error);
+        if (r.status >= 400) return err('HA HTTP ' + r.status);
         var entities = Array.isArray(r.body) ? r.body : [];
-        var INTERACTIVE = ['light','switch','scene','script','media_player','climate'];
-        var READONLY    = ['sensor','binary_sensor','cover','vacuum'];
-        var out = [];
-        for (var i = 0; i < entities.length && out.length < 10; i++) {
+        // Domains the user can interact with from a search row.
+        var INTERACTIVE = [
+          'light','switch','scene','script','media_player','climate',
+          'input_boolean','input_button','automation','fan','vacuum',
+        ];
+        // Read-only chips — useful for "what's the temperature in
+        // <room>" style searches.
+        var READONLY = ['sensor','binary_sensor','cover','input_number','input_select'];
+        // Score every candidate entity; keep top 10 by score so a
+        // strong substring match wins over a weak subsequence one.
+        var scored = [];
+        for (var i = 0; i < entities.length; i++) {
           var e = entities[i];
           var id = e.entity_id || '';
           var dot = id.indexOf('.');
           if (dot < 0) continue;
           var domain = id.substring(0, dot);
           if (INTERACTIVE.indexOf(domain) < 0 && READONLY.indexOf(domain) < 0) continue;
-          var name = ((e.attributes && e.attributes.friendly_name) || id.substring(dot+1)).toString();
-          if (name.toLowerCase().indexOf(q) < 0) continue;
-          var hit = renderEntityHit(domain, id, name, e);
-          if (hit) out.push(hit);
+          var name = ((e.attributes && e.attributes.friendly_name) ||
+                      id.substring(dot+1)).toString();
+          // Score against multiple haystacks. Best score wins.
+          var areaId = String((e.attributes && e.attributes.area_id) || '');
+          var score = Math.max(
+            fuzzyScore(q, name),
+            fuzzyScore(q, id),
+            fuzzyScore(q, areaId),
+          );
+          if (score <= 0) continue;
+          scored.push({ score: score, render: renderEntityHit(domain, id, name, e) });
+        }
+        scored.sort(function (a, b) { return b.score - a.score; });
+        var out = [];
+        for (var j = 0; j < scored.length && out.length < 10; j++) {
+          if (scored[j].render) out.push(scored[j].render);
         }
         return ok({ results: out });
       });
     },
   });
+
+  // ── Fuzzy match — three tiers ────────────────────────────────
+  // 1. exact prefix → 1000+ (sorts to top)
+  // 2. any substring → 800 - position (earlier = higher)
+  // 3. subsequence (q chars appear in order in target) → up to 200
+  // Returns 0 for no match. Used by search() to rank candidates
+  // across friendly_name + entity_id + area_id.
+  function fuzzyScore(query, target) {
+    if (!query || !target) return 0;
+    var q = String(query).toLowerCase();
+    var t = String(target).toLowerCase();
+    if (t.indexOf(q) === 0) return 1000 + q.length;
+    var idx = t.indexOf(q);
+    if (idx >= 0) return 800 - Math.min(idx, 700);
+    // Subsequence: every query char appears in target in order.
+    var qi = 0;
+    for (var ti = 0; ti < t.length && qi < q.length; ti++) {
+      if (q.charAt(qi) === t.charAt(ti)) qi++;
+    }
+    if (qi === q.length) return Math.max(50, 200 - (t.length - q.length));
+    return 0;
+  }
 
   // ── Search-result renderers ──────────────────────────────────
 

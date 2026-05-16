@@ -445,35 +445,71 @@
      *  proxy (`iappyx.plugin('hue').setLight(...)` etc.) so the toggle /
      *  brightness slider work without leaving search.
      *
-     *  Two parallel reads (lights + groups) — they're cheap LAN GETs.
-     *  Group results win on UI: a single group toggles many bulbs.
-     *  Lights are listed below groups when the name matches both. */
+     *  Returns {ok:false, error} when the bridge is unreachable / not
+     *  configured / errored — the universal-search aggregator surfaces
+     *  that as a diagnostic row instead of "no matches" so the user
+     *  can tell whether the bridge is offline or just no name match. */
     search: function (args) {
       var q = String((args && args.query) || '').trim().toLowerCase();
       if (!q) return ok({ results: [] });
-      // Run lights + groups concurrently; merge filter+rank in JS.
+      var c = creds();
+      if (!c.bridgeIp || !c.username) return err('Hue bridge not paired');
       return Promise.all([get('/lights'), get('/groups')]).then(function (rs) {
+        if (rs[0].error && rs[1].error) return err('bridge: ' + rs[0].error);
         var lightsBody = (rs[0] && rs[0].body) || {};
         var groupsBody = (rs[1] && rs[1].body) || {};
-        var out = [];
-        // Groups first — toggling a whole room is the higher-leverage
-        // action when the user typed a room name.
+        // Score every candidate (group + light) and keep the top 10.
+        // Groups get a small bonus over individual lights — toggling
+        // a whole room is the higher-leverage action when names
+        // overlap (room-named light + same-named group).
+        var scored = [];
         for (var gid in groupsBody) {
           if (!Object.prototype.hasOwnProperty.call(groupsBody, gid)) continue;
           var g = asGroup(gid, groupsBody[gid]); if (!g) continue;
-          if (g.name.toLowerCase().indexOf(q) < 0) continue;
-          out.push(renderGroupHit(g));
+          var gs = Math.max(
+            fuzzyScore(q, g.name),
+            fuzzyScore(q, g['class'] || ''),
+          );
+          if (gs <= 0) continue;
+          scored.push({ score: gs + 50 /* group preference */,
+                        render: renderGroupHit(g) });
         }
         for (var lid in lightsBody) {
           if (!Object.prototype.hasOwnProperty.call(lightsBody, lid)) continue;
           var L = asLight(lid, lightsBody[lid]); if (!L) continue;
-          if (L.name.toLowerCase().indexOf(q) < 0) continue;
-          out.push(renderLightHit(L));
+          var ls = fuzzyScore(q, L.name);
+          if (ls <= 0) continue;
+          scored.push({ score: ls, render: renderLightHit(L) });
         }
-        return ok({ results: out.slice(0, 10) });
+        scored.sort(function (a, b) { return b.score - a.score; });
+        var out = [];
+        for (var i = 0; i < scored.length && out.length < 10; i++) {
+          if (scored[i].render) out.push(scored[i].render);
+        }
+        return ok({ results: out });
       });
     },
   });
+
+  // ── Fuzzy match — three tiers ────────────────────────────────
+  // 1. exact prefix → 1000+ (sorts to top)
+  // 2. any substring → 800 - position (earlier = higher)
+  // 3. subsequence (q chars appear in order in target) → up to 200
+  // Returns 0 for no match.
+  function fuzzyScore(query, target) {
+    if (!query || !target) return 0;
+    var q = String(query).toLowerCase();
+    var t = String(target).toLowerCase();
+    if (t.indexOf(q) === 0) return 1000 + q.length;
+    var idx = t.indexOf(q);
+    if (idx >= 0) return 800 - Math.min(idx, 700);
+    var qi = 0;
+    for (var ti = 0; ti < t.length && qi < q.length; ti++) {
+      if (q.charAt(qi) === t.charAt(ti)) qi++;
+    }
+    if (qi === q.length) return Math.max(50, 200 - (t.length - q.length));
+    return 0;
+  }
 
   // ── Search-result renderers ──────────────────────────────────
   // Inline HTML snippet per hit. Kept tight so the row stays small.
