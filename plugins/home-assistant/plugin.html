@@ -292,8 +292,11 @@
         // sensors. See the table in the plugin README / aiPrompt for
         // the reasoning behind these numbers.
         var DOMAIN_RANK = {
-          // Tier 1 — premium daily-use controls
-          scene: 130, light: 120, switch: 115, climate: 110, media_player: 105,
+          // Tier 1 — premium daily-use controls. Lights at the top:
+          // they're the most-frequent action, full stop. Scenes are
+          // still high-value (one tap = whole-room state) but slot
+          // just below lights.
+          light: 140, switch: 125, scene: 120, climate: 110, media_player: 105,
           // Tier 2 — actionable but less common
           script: 80, fan: 75, input_boolean: 75, input_button: 70,
           vacuum: 65, cover: 60, automation: 55,
