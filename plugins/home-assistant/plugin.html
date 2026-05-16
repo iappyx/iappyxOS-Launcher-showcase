@@ -267,7 +267,207 @@
         });
       });
     },
+
+    /** Universal-search source. Filters cached entity list by friendly
+     *  name; returns inline interactive HTML per hit (toggles for
+     *  lights/switches, up/down for climate, transport for media). Uses
+     *  the 30-second states cache so type-ahead doesn't hammer HA;
+     *  passes `fresh:false` (the default).
+     *
+     *  Domains surfaced (in this priority): light, switch, climate,
+     *  media_player, scene, script. Other domains (sensor, binary_sensor)
+     *  show as read-only chips if their friendly name matches — useful
+     *  for "temperature outside" type queries. */
+    search: function (args) {
+      var q = String((args && args.query) || '').trim().toLowerCase();
+      if (!q) return ok({ results: [] });
+      return authedGet('/api/states').then(function (r) {
+        if (r.error || r.status >= 400) return ok({ results: [] });
+        var entities = Array.isArray(r.body) ? r.body : [];
+        var INTERACTIVE = ['light','switch','scene','script','media_player','climate'];
+        var READONLY    = ['sensor','binary_sensor','cover','vacuum'];
+        var out = [];
+        for (var i = 0; i < entities.length && out.length < 10; i++) {
+          var e = entities[i];
+          var id = e.entity_id || '';
+          var dot = id.indexOf('.');
+          if (dot < 0) continue;
+          var domain = id.substring(0, dot);
+          if (INTERACTIVE.indexOf(domain) < 0 && READONLY.indexOf(domain) < 0) continue;
+          var name = ((e.attributes && e.attributes.friendly_name) || id.substring(dot+1)).toString();
+          if (name.toLowerCase().indexOf(q) < 0) continue;
+          var hit = renderEntityHit(domain, id, name, e);
+          if (hit) out.push(hit);
+        }
+        return ok({ results: out });
+      });
+    },
   });
+
+  // ── Search-result renderers ──────────────────────────────────
+
+  function renderEntityHit(domain, id, name, e) {
+    var state = (e.state || '').toString();
+    var attrs = e.attributes || {};
+    if (domain === 'light' || domain === 'switch') {
+      var on = (state === 'on');
+      var bri = attrs.brightness != null ? attrs.brightness : 255;
+      return {
+        id: 'ha:' + id,
+        title: name,
+        subtitle: (domain === 'light' ? 'Light' : 'Switch') + ' · ' + state
+          + (domain === 'light' && on ? ' · ' + Math.round(bri/255*100) + '%' : ''),
+        icon: null,
+        height: domain === 'light' ? 70 : 56,
+        html: lightSwitchHtml(domain, id, on, bri),
+      };
+    }
+    if (domain === 'scene' || domain === 'script') {
+      return {
+        id: 'ha:' + id,
+        title: name,
+        subtitle: (domain === 'scene' ? 'Scene' : 'Script') + ' · tap to run',
+        icon: null,
+        height: 56,
+        html: triggerHtml(domain, id),
+      };
+    }
+    if (domain === 'media_player') {
+      var playing = (state === 'playing');
+      var track = (attrs.media_title || attrs.media_artist || '').toString();
+      return {
+        id: 'ha:' + id,
+        title: name,
+        subtitle: 'Media · ' + state + (track ? ' · ' + track : ''),
+        icon: null,
+        height: 56,
+        html: mediaHtml(id, playing),
+      };
+    }
+    if (domain === 'climate') {
+      var current = attrs.current_temperature != null ? attrs.current_temperature : '?';
+      var target  = attrs.temperature != null ? attrs.temperature : (current || 20);
+      return {
+        id: 'ha:' + id,
+        title: name,
+        subtitle: 'Climate · current ' + current + '°',
+        icon: null,
+        height: 70,
+        html: climateHtml(id, target),
+      };
+    }
+    // Read-only — friendly chip with current state + unit.
+    var unit = attrs.unit_of_measurement || '';
+    return {
+      id: 'ha:' + id,
+      title: name,
+      subtitle: state + (unit ? ' ' + unit : '') + ' · read-only',
+      icon: null,
+      height: 44,
+      html: '<div style="opacity:.85;font-size:14px;line-height:44px;">'
+        + escapeHtml(state) + (unit ? ' <span style="opacity:.7;font-size:11px">' + escapeHtml(unit) + '</span>' : '')
+        + '</div>',
+    };
+  }
+
+  function lightSwitchHtml(domain, id, on, bri) {
+    var hasBri = (domain === 'light');
+    var idJson = JSON.stringify(id);
+    return ''
+      + '<div style="display:flex;align-items:center;gap:10px;height:100%;">'
+      + '<button id="t" style="border:1px solid #555;background:'
+      + (on?'#fff':'#222') + ';color:' + (on?'#000':'#fff')
+      + ';border-radius:14px;padding:8px 14px;min-width:62px;">'
+      + (on?'ON':'OFF') + '</button>'
+      + (hasBri
+          ? '<input id="b" type="range" min="1" max="255" value="' + bri + '" style="flex:1;accent-color:#fff;">'
+          : '<div style="flex:1"></div>')
+      + '</div>'
+      + '<script>(function(){'
+      + 'var t=document.getElementById("t"),b=document.getElementById("b");'
+      + 'var on=' + (on?'true':'false') + ';'
+      + 't.addEventListener("click",function(){on=!on;'
+      + '  t.textContent=on?"ON":"OFF";'
+      + '  t.style.background=on?"#fff":"#222";t.style.color=on?"#000":"#fff";'
+      + '  iappyx.plugin("home-assistant").call({domain:"' + domain + '",'
+      +     'service:on?"turn_on":"turn_off",target:{entity_id:' + idJson + '}'
+      +     (hasBri ? ',data:{brightness:parseInt(b.value,10)}' : '')
+      + '  });'
+      + '});'
+      + (hasBri
+          ? 'var bt=null;b.addEventListener("input",function(){'
+          + '  clearTimeout(bt);'
+          + '  bt=setTimeout(function(){'
+          + '    iappyx.plugin("home-assistant").call({domain:"light",service:"turn_on",'
+          + '      target:{entity_id:' + idJson + '},data:{brightness:parseInt(b.value,10)}});'
+          + '  },120);'
+          + '});'
+          : '')
+      + '})();</script>';
+  }
+
+  function triggerHtml(domain, id) {
+    var idJson = JSON.stringify(id);
+    var service = (domain === 'scene') ? 'turn_on' : 'turn_on';
+    return ''
+      + '<button id="t" style="border:1px solid #555;background:#fff;color:#000;'
+      + 'border-radius:14px;padding:10px 18px;font-weight:600;">Run</button>'
+      + '<script>(function(){document.getElementById("t").addEventListener("click",function(){'
+      + 'iappyx.plugin("home-assistant").call({domain:"' + domain + '",'
+      + 'service:"' + service + '",target:{entity_id:' + idJson + '}});'
+      + '});})();</script>';
+  }
+
+  function mediaHtml(id, playing) {
+    var idJson = JSON.stringify(id);
+    return ''
+      + '<div style="display:flex;align-items:center;gap:6px;height:100%;">'
+      + '<button id="p" style="border:1px solid #555;background:'
+      +   (playing?'#fff':'#222') + ';color:' + (playing?'#000':'#fff')
+      + ';border-radius:14px;padding:8px 14px;">' + (playing?'⏸':'▶') + '</button>'
+      + '<button id="n" style="border:1px solid #555;background:#222;color:#fff;'
+      + 'border-radius:14px;padding:8px 14px;">⏭</button>'
+      + '</div>'
+      + '<script>(function(){'
+      + 'var pl=' + (playing?'true':'false') + ';'
+      + 'document.getElementById("p").addEventListener("click",function(){'
+      + '  iappyx.plugin("home-assistant").call({domain:"media_player",'
+      + '    service:pl?"media_pause":"media_play",target:{entity_id:' + idJson + '}});'
+      + '});'
+      + 'document.getElementById("n").addEventListener("click",function(){'
+      + '  iappyx.plugin("home-assistant").call({domain:"media_player",'
+      + '    service:"media_next_track",target:{entity_id:' + idJson + '}});'
+      + '});'
+      + '})();</script>';
+  }
+
+  function climateHtml(id, target) {
+    var idJson = JSON.stringify(id);
+    return ''
+      + '<div style="display:flex;align-items:center;gap:8px;height:100%;">'
+      + '<button id="m" style="border:1px solid #555;background:#222;color:#fff;'
+      +   'border-radius:14px;padding:8px 12px;min-width:36px;">−</button>'
+      + '<div id="t" style="min-width:46px;text-align:center;font-size:18px;font-weight:600;">'
+      +   target + '°</div>'
+      + '<button id="p" style="border:1px solid #555;background:#222;color:#fff;'
+      +   'border-radius:14px;padding:8px 12px;min-width:36px;">+</button>'
+      + '</div>'
+      + '<script>(function(){'
+      + 'var v=' + target + ',t=document.getElementById("t");'
+      + 'function setIt(){t.textContent=v+"°";'
+      + '  iappyx.plugin("home-assistant").call({domain:"climate",'
+      + '    service:"set_temperature",target:{entity_id:' + idJson + '},data:{temperature:v}});'
+      + '}'
+      + 'document.getElementById("m").addEventListener("click",function(){v=Math.max(5,v-1);setIt();});'
+      + 'document.getElementById("p").addEventListener("click",function(){v=Math.min(35,v+1);setIt();});'
+      + '})();</script>';
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g,function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
 
   iappyx.plugin.log('home-assistant plugin loaded');
 })();

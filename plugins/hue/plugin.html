@@ -437,7 +437,122 @@
         return ok({});
       });
     },
+
+    /** Universal-search source. Called by the launcher's search panel
+     *  while the user types. Returns up to ~10 matching lights + groups
+     *  along with an HTML snippet per result that renders inline in the
+     *  search panel. Each snippet calls back via the launcher's plugin
+     *  proxy (`iappyx.plugin('hue').setLight(...)` etc.) so the toggle /
+     *  brightness slider work without leaving search.
+     *
+     *  Two parallel reads (lights + groups) — they're cheap LAN GETs.
+     *  Group results win on UI: a single group toggles many bulbs.
+     *  Lights are listed below groups when the name matches both. */
+    search: function (args) {
+      var q = String((args && args.query) || '').trim().toLowerCase();
+      if (!q) return ok({ results: [] });
+      // Run lights + groups concurrently; merge filter+rank in JS.
+      return Promise.all([get('/lights'), get('/groups')]).then(function (rs) {
+        var lightsBody = (rs[0] && rs[0].body) || {};
+        var groupsBody = (rs[1] && rs[1].body) || {};
+        var out = [];
+        // Groups first — toggling a whole room is the higher-leverage
+        // action when the user typed a room name.
+        for (var gid in groupsBody) {
+          if (!Object.prototype.hasOwnProperty.call(groupsBody, gid)) continue;
+          var g = asGroup(gid, groupsBody[gid]); if (!g) continue;
+          if (g.name.toLowerCase().indexOf(q) < 0) continue;
+          out.push(renderGroupHit(g));
+        }
+        for (var lid in lightsBody) {
+          if (!Object.prototype.hasOwnProperty.call(lightsBody, lid)) continue;
+          var L = asLight(lid, lightsBody[lid]); if (!L) continue;
+          if (L.name.toLowerCase().indexOf(q) < 0) continue;
+          out.push(renderLightHit(L));
+        }
+        return ok({ results: out.slice(0, 10) });
+      });
+    },
   });
+
+  // ── Search-result renderers ──────────────────────────────────
+  // Inline HTML snippet per hit. Kept tight so the row stays small.
+  // The snippet runs inside a sandbox-class WebView with the plugin
+  // proxy attached, so calling `iappyx.plugin('hue').*` works.
+
+  function renderGroupHit(g) {
+    var anyOn = g.state.any_on;
+    var bri = g.action.bri != null ? g.action.bri : 254;
+    // ID kept stable across reruns so the WebView holder doesn't
+    // re-load when the user types one extra character.
+    return {
+      id: 'hue:group:' + g.id,
+      title: g.name,
+      subtitle: 'Room · ' + (anyOn ? 'on' : 'off') + ' · ' + Math.round(bri / 254 * 100) + '%',
+      icon: null,
+      height: 70,
+      html:
+        '<div style="display:flex;align-items:center;gap:10px;height:100%;">'
+        + '<button id="t" style="border:1px solid #555;background:'
+        + (anyOn ? '#fff' : '#222') + ';color:' + (anyOn ? '#000' : '#fff')
+        + ';border-radius:14px;padding:8px 14px;min-width:62px;">'
+        + (anyOn ? 'ON' : 'OFF') + '</button>'
+        + '<input id="b" type="range" min="1" max="254" value="' + bri
+        + '" style="flex:1;accent-color:#fff;">'
+        + '</div>'
+        + '<script>(function(){'
+        + 'var t=document.getElementById("t"),b=document.getElementById("b");'
+        + 'var on=' + (anyOn ? 'true' : 'false') + ';'
+        + 't.addEventListener("click",function(){on=!on;'
+        + '  t.textContent=on?"ON":"OFF";'
+        + '  t.style.background=on?"#fff":"#222";t.style.color=on?"#000":"#fff";'
+        + '  iappyx.plugin("hue").setGroup({id:"' + g.id + '",on:on,bri:parseInt(b.value,10)});'
+        + '});'
+        + 'var bt=null;b.addEventListener("input",function(){'
+        + '  clearTimeout(bt);'
+        + '  bt=setTimeout(function(){'
+        + '    iappyx.plugin("hue").setGroup({id:"' + g.id + '",bri:parseInt(b.value,10)});'
+        + '  },120);'
+        + '});'
+        + '})();</script>'
+    };
+  }
+
+  function renderLightHit(L) {
+    var on = L.on;
+    var bri = L.bri != null ? L.bri : 254;
+    return {
+      id: 'hue:light:' + L.id,
+      title: L.name,
+      subtitle: 'Light · ' + (on ? 'on' : 'off') + ' · ' + Math.round(bri / 254 * 100) + '%',
+      icon: null,
+      height: 70,
+      html:
+        '<div style="display:flex;align-items:center;gap:10px;height:100%;">'
+        + '<button id="t" style="border:1px solid #555;background:'
+        + (on ? '#fff' : '#222') + ';color:' + (on ? '#000' : '#fff')
+        + ';border-radius:14px;padding:8px 14px;min-width:62px;">'
+        + (on ? 'ON' : 'OFF') + '</button>'
+        + '<input id="b" type="range" min="1" max="254" value="' + bri
+        + '" style="flex:1;accent-color:#fff;">'
+        + '</div>'
+        + '<script>(function(){'
+        + 'var t=document.getElementById("t"),b=document.getElementById("b");'
+        + 'var on=' + (on ? 'true' : 'false') + ';'
+        + 't.addEventListener("click",function(){on=!on;'
+        + '  t.textContent=on?"ON":"OFF";'
+        + '  t.style.background=on?"#fff":"#222";t.style.color=on?"#000":"#fff";'
+        + '  iappyx.plugin("hue").setLight({id:"' + L.id + '",on:on,bri:parseInt(b.value,10)});'
+        + '});'
+        + 'var bt=null;b.addEventListener("input",function(){'
+        + '  clearTimeout(bt);'
+        + '  bt=setTimeout(function(){'
+        + '    iappyx.plugin("hue").setLight({id:"' + L.id + '",bri:parseInt(b.value,10)});'
+        + '  },120);'
+        + '});'
+        + '})();</script>'
+    };
+  }
 
   iappyx.plugin.log('hue plugin loaded');
 })();
