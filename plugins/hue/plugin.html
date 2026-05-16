@@ -462,6 +462,17 @@
         // Groups get a small bonus over individual lights — toggling
         // a whole room is the higher-leverage action when names
         // overlap (room-named light + same-named group).
+        // Index of which light id belongs to which group, so we can
+        // dedupe: if both a group and any of its child lights match
+        // the query, only show the group — the children are noise.
+        var lightToGroup = {};
+        for (var gid0 in groupsBody) {
+          if (!Object.prototype.hasOwnProperty.call(groupsBody, gid0)) continue;
+          var g0 = asGroup(gid0, groupsBody[gid0]); if (!g0) continue;
+          for (var lk = 0; lk < (g0.lights || []).length; lk++) {
+            lightToGroup[g0.lights[lk]] = gid0;
+          }
+        }
         var scored = [];
         for (var gid in groupsBody) {
           if (!Object.prototype.hasOwnProperty.call(groupsBody, gid)) continue;
@@ -472,6 +483,7 @@
           );
           if (gs <= 0) continue;
           scored.push({ score: gs + 50 /* group preference */,
+                        kind: 'group', id: gid,
                         render: renderGroupHit(g) });
         }
         for (var lid in lightsBody) {
@@ -479,14 +491,22 @@
           var L = asLight(lid, lightsBody[lid]); if (!L) continue;
           var ls = fuzzyScore(q, L.name);
           if (ls <= 0) continue;
-          scored.push({ score: ls, render: renderLightHit(L) });
+          scored.push({ score: ls, kind: 'light', id: lid,
+                        render: renderLightHit(L) });
         }
         scored.sort(function (a, b) { return b.score - a.score; });
-        var out = [];
-        for (var i = 0; i < scored.length && out.length < 10; i++) {
-          if (scored[i].render) out.push(scored[i].render);
+        // Dedupe: walk best-score-first; skip lights whose parent
+        // group is already in the output.
+        var visible = [];
+        var addedGroupIds = {};
+        for (var s = 0; s < scored.length && visible.length < 10; s++) {
+          var item = scored[s];
+          if (item.kind === 'light' && addedGroupIds[lightToGroup[item.id]]) continue;
+          visible.push(item);
+          if (item.kind === 'group') addedGroupIds[item.id] = true;
         }
-        return ok({ results: out });
+        return ok({ results: visible.map(function (x) { return x.render; })
+                                    .filter(Boolean) });
       });
     },
   });

@@ -285,16 +285,45 @@
         if (r.error) return err(r.error);
         if (r.status >= 400) return err('HA HTTP ' + r.status);
         var entities = Array.isArray(r.body) ? r.body : [];
-        // Domains the user can interact with from a search row.
-        var INTERACTIVE = [
-          'light','switch','scene','script','media_player','climate',
-          'input_boolean','input_button','automation','fan','vacuum',
-        ];
-        // Read-only chips — useful for "what's the temperature in
-        // <room>" style searches.
-        var READONLY = ['sensor','binary_sensor','cover','input_number','input_select'];
+        // Per-domain rank bonus added to the fuzzy match score. The
+        // match score still dominates (~50-1000+) — this bonus breaks
+        // ties so within an equally-good fuzzy match, premium controls
+        // (scenes, lights, switches, climate, media) outrank read-only
+        // sensors. See the table in the plugin README / aiPrompt for
+        // the reasoning behind these numbers.
+        var DOMAIN_RANK = {
+          // Tier 1 — premium daily-use controls
+          scene: 130, light: 120, switch: 115, climate: 110, media_player: 105,
+          // Tier 2 — actionable but less common
+          script: 80, fan: 75, input_boolean: 75, input_button: 70,
+          vacuum: 65, cover: 60, automation: 55,
+          // Tier 3 — read-only chips
+          sensor: 25, binary_sensor: 20, input_number: 15, input_select: 15,
+        };
+        // Set of allowed domains (anything not in DOMAIN_RANK is dropped).
+        var ALLOWED = DOMAIN_RANK;
         // Score every candidate entity; keep top 10 by score so a
-        // strong substring match wins over a weak subsequence one.
+        // strong substring match wins over a weak subsequence one,
+        // and within equally-good matches the premium domains rank up.
+        //
+        // Light groups (Hue/Zigbee2MQTT/light_group platforms) carry an
+        // `entity_id` ATTRIBUTE listing their child entities. We rank
+        // groups above their children AND dedupe: if both a group and
+        // its members match the query, only the group is shown — the
+        // children are noise. Pre-build a child→parent map for that.
+        var childToGroup = {};
+        for (var i0 = 0; i0 < entities.length; i0++) {
+          var ge = entities[i0];
+          if (!ge.attributes || !Array.isArray(ge.attributes.entity_id)) continue;
+          var gid = ge.entity_id || '';
+          if (gid.indexOf('.') < 0) continue;
+          // entity_id-attribute appears on lights, switches, covers,
+          // media_players that act as groups. Trust it for any domain.
+          for (var k = 0; k < ge.attributes.entity_id.length; k++) {
+            var child = String(ge.attributes.entity_id[k]);
+            childToGroup[child] = gid;
+          }
+        }
         var scored = [];
         for (var i = 0; i < entities.length; i++) {
           var e = entities[i];
@@ -302,20 +331,47 @@
           var dot = id.indexOf('.');
           if (dot < 0) continue;
           var domain = id.substring(0, dot);
-          if (INTERACTIVE.indexOf(domain) < 0 && READONLY.indexOf(domain) < 0) continue;
+          if (!Object.prototype.hasOwnProperty.call(ALLOWED, domain)) continue;
           var name = ((e.attributes && e.attributes.friendly_name) ||
                       id.substring(dot+1)).toString();
-          // Score against multiple haystacks. Best score wins.
+          // Score against multiple haystacks. Best fuzzy score wins.
           var areaId = String((e.attributes && e.attributes.area_id) || '');
-          var score = Math.max(
+          var matchScore = Math.max(
             fuzzyScore(q, name),
             fuzzyScore(q, id),
             fuzzyScore(q, areaId),
           );
-          if (score <= 0) continue;
-          scored.push({ score: score, render: renderEntityHit(domain, id, name, e) });
+          if (matchScore <= 0) continue;
+          // Group bonus: an entity whose attributes carry an
+          // `entity_id` array IS a group. Tiny bonus (15) — enough to
+          // float above siblings with identical match scores but small
+          // enough that a perfect-prefix child still beats a weak-match
+          // parent.
+          var isGroup = !!(e.attributes && Array.isArray(e.attributes.entity_id));
+          // Final score = match quality (dominant) + domain bonus +
+          // group bonus.
+          var score = matchScore + (DOMAIN_RANK[domain] || 0) + (isGroup ? 15 : 0);
+          scored.push({
+            score: score,
+            entityId: id,
+            isGroup: isGroup,
+            render: renderEntityHit(domain, id, name, e),
+          });
         }
         scored.sort(function (a, b) { return b.score - a.score; });
+        // Dedupe pass: walk best-score-first, skip any entity whose
+        // parent group is already in the output. Stop at 10 visible.
+        var visible = [];
+        var addedGroups = {};
+        for (var s = 0; s < scored.length; s++) {
+          var item = scored[s];
+          var parent = childToGroup[item.entityId];
+          if (parent && addedGroups[parent]) continue;  // its group is already in
+          visible.push(item);
+          if (item.isGroup) addedGroups[item.entityId] = true;
+          if (visible.length >= 10) break;
+        }
+        scored = visible;
         var out = [];
         for (var j = 0; j < scored.length && out.length < 10; j++) {
           if (scored[j].render) out.push(scored[j].render);
