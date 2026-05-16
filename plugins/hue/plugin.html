@@ -449,7 +449,7 @@
      *  configured / errored — the universal-search aggregator surfaces
      *  that as a diagnostic row instead of "no matches" so the user
      *  can tell whether the bridge is offline or just no name match. */
-    search: function (args) {
+    universalSearch: function (args) {
       var q = String((args && args.query) || '').trim().toLowerCase();
       if (!q) return ok({ results: [] });
       var c = creds();

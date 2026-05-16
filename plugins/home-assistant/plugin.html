@@ -278,7 +278,7 @@
      *  media_player, scene, script. Other domains (sensor, binary_sensor)
      *  show as read-only chips if their friendly name matches — useful
      *  for "temperature outside" type queries. */
-    search: function (args) {
+    universalSearch: function (args) {
       var q = String((args && args.query) || '').trim().toLowerCase();
       if (!q) return ok({ results: [] });
       return authedGet('/api/states').then(function (r) {
