@@ -16,6 +16,7 @@
     { "name": "albums",       "args": {} },
     { "name": "album",        "args": { "id": "string", "count": "int" } },
     { "name": "search",       "args": { "query": "string", "count": "int" } },
+    { "name": "universalSearch", "args": { "query": "string" } },
     { "name": "thumbnail",    "args": { "assetId": "string", "size": "string" } },
     { "name": "image",        "args": { "assetId": "string" } }
   ],

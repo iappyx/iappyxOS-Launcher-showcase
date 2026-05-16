@@ -14,6 +14,7 @@
     { "name": "ping",         "args": {} },
     { "name": "recent",       "args": { "count": "int" } },
     { "name": "search",       "args": { "query": "string", "count": "int" } },
+    { "name": "universalSearch", "args": { "query": "string" } },
     { "name": "byTag",        "args": { "tagId": "int", "count": "int" } },
     { "name": "tags",         "args": {} },
     { "name": "correspondents","args": {} },

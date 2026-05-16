@@ -265,7 +265,63 @@
           return ok({ dataUrl: url });
         });
     },
+
+    /** Universal-search source — Paperless's full-text endpoint
+     *  scores documents across title + OCR content. Returns top 5
+     *  matches as inline rows with title + correspondent name +
+     *  created date + an Open button that fires the Paperless web UI
+     *  in the user's browser. */
+    universalSearch: function (args) {
+      var q = String((args && args.query) || '').trim();
+      if (!q) return ok({ results: [] });
+      var c = creds();
+      if (!c.serverUrl || !c.token) return err('not configured');
+      return authedGet('/api/documents/?query=' + encodeURIComponent(q) +
+                       '&truncate_content=true&page_size=5')
+        .then(function (r) {
+          if (r.error) return err(r.error);
+          if (r.status === 401) return err('invalid token');
+          if (r.status >= 400) return err('server error ' + r.status);
+          var b = r.body || {};
+          var items = Array.isArray(b.results) ? b.results : [];
+          var serverBase = c.serverUrl;  // captured in closure for renderer
+          return ok({
+            results: items.map(function (d) { return renderDocHit(d, serverBase); })
+                          .filter(Boolean),
+          });
+        });
+    },
   });
+
+  function renderDocHit(d, serverBase) {
+    if (!d || d.id == null) return null;
+    var title = (d.title || ('Document ' + d.id)).slice(0, 80);
+    var created = (d.created || d.created_date || '').slice(0, 10);
+    // Paperless's web UI lives at <serverBase>/documents/<id>/details
+    var url = serverBase + '/documents/' + d.id + '/details';
+    var urlJson = JSON.stringify(url);
+    var tagCount = Array.isArray(d.tags) ? d.tags.length : 0;
+    var subtitle = (created ? 'Created ' + created : 'Paperless')
+      + (tagCount ? ' · ' + tagCount + (tagCount === 1 ? ' tag' : ' tags') : '');
+    return {
+      id: 'paperless:doc:' + d.id,
+      title: title,
+      subtitle: subtitle,
+      icon: null,
+      height: 56,
+      html: ''
+        + '<div style="display:flex;align-items:center;justify-content:flex-end;'
+        + 'height:100%;">'
+        + '  <button id="o" style="border:1px solid #555;background:#fff;color:#000;'
+        +     'border-radius:14px;padding:8px 18px;font-weight:600;">Open</button>'
+        + '</div>'
+        + '<script>(function(){'
+        + 'document.getElementById("o").addEventListener("click",function(){'
+        +   'iappyx.openUrl(' + urlJson + ');'
+        + '});'
+        + '})();<\/script>',
+    };
+  }
 
   iappyx.plugin.log('paperless-ngx plugin loaded');
 })();

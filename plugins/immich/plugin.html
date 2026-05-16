@@ -190,6 +190,47 @@
       });
     },
 
+    /** Universal-search source. Smart (semantic) search first; falls
+     *  back to filename metadata when smart search fails (e.g. ML model
+     *  not yet warm). Renders inline rows with filename + taken-date +
+     *  Open button. The Open button fires the Immich web-UI photo URL
+     *  in the user's browser (no thumbnail fetch — keeps the row fast). */
+    universalSearch: function (args) {
+      var q = String((args && args.query) || '').trim();
+      if (!q) return ok({ results: [] });
+      var c = creds();
+      if (!c.serverUrl || !c.apiKey) return err('not configured');
+      var size = 5;
+      return authedPostJson('/api/search/smart', {
+        query: q, size: size, type: 'IMAGE',
+      }).then(function (r) {
+        var items = [];
+        if (r.status >= 200 && r.status < 300) {
+          items = (r.body && r.body.assets && r.body.assets.items) || [];
+        }
+        // Fall back to filename search when smart returns 0 results
+        // OR errored. Picks up "vacation_2024.jpg" style matches that
+        // semantic search would miss.
+        if (items.length === 0) {
+          return authedPostJson('/api/search/metadata', {
+            originalFileName: q, size: size, type: 'IMAGE',
+          }).then(function (r2) {
+            if (r2.error) return err(r2.error);
+            if (r2.status >= 400) return err('search failed (' + r2.status + ')');
+            var items2 = (r2.body && r2.body.assets && r2.body.assets.items) || [];
+            return ok({
+              results: items2.map(function (a) { return renderAssetHit(a, c.serverUrl); })
+                             .filter(Boolean),
+            });
+          });
+        }
+        return ok({
+          results: items.map(function (a) { return renderAssetHit(a, c.serverUrl); })
+                        .filter(Boolean),
+        });
+      });
+    },
+
     search: function (args) {
       var query = (args && args.query) || '';
       var count = Math.max(1, Math.min(100, (args && args.count) || 20));
@@ -244,6 +285,35 @@
       });
     },
   });
+
+  function renderAssetHit(a, serverBase) {
+    if (!a || !a.id) return null;
+    var fileName = (a.originalFileName || a.fileName || a.id).slice(0, 80);
+    var takenAt = a.fileCreatedAt || a.localDateTime ||
+                  (a.exifInfo && a.exifInfo.dateTimeOriginal) || '';
+    var dateLabel = String(takenAt).slice(0, 10);
+    // Immich's web UI uses /photos/<assetId> for the single-asset view.
+    var url = serverBase + '/photos/' + a.id;
+    var urlJson = JSON.stringify(url);
+    return {
+      id: 'immich:asset:' + a.id,
+      title: fileName,
+      subtitle: dateLabel ? 'Taken ' + dateLabel : 'Immich',
+      icon: null,
+      height: 56,
+      html: ''
+        + '<div style="display:flex;align-items:center;justify-content:flex-end;'
+        + 'height:100%;">'
+        + '  <button id="o" style="border:1px solid #555;background:#fff;color:#000;'
+        +     'border-radius:14px;padding:8px 18px;font-weight:600;">Open</button>'
+        + '</div>'
+        + '<script>(function(){'
+        + 'document.getElementById("o").addEventListener("click",function(){'
+        +   'iappyx.openUrl(' + urlJson + ');'
+        + '});'
+        + '})();<\/script>',
+    };
+  }
 
   iappyx.plugin.log('immich plugin loaded');
 })();
