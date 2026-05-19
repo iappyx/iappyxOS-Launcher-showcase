@@ -1,0 +1,139 @@
+<!-- Built with iappyxOS Launcher -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="iappyx-widget" content="pause">
+<title>AdGuard Live Queries</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: transparent; color: #ECECEC;
+               font-family: -apple-system, Roboto, sans-serif; overflow: hidden;
+               -webkit-user-select: none; user-select: none; }
+  #root { display: flex; flex-direction: column; padding: 10px 12px; box-sizing: border-box;
+          height: 100%; }
+  .header { display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 6px; flex: 0 0 auto; }
+  .title { color: #8E8E97; font-size: 10px; text-transform: uppercase;
+           letter-spacing: 0.08em; }
+  .title b { color: #ECECEC; font-weight: 500; text-transform: none; letter-spacing: 0; }
+  .filter { display: flex; gap: 4px; }
+  .filter button { background: transparent; color: #8E8E97; border: 1px solid #2a2a36;
+                   border-radius: 6px; padding: 2px 8px; font-size: 10px; cursor: pointer;
+                   font: inherit; font-size: 10px; }
+  .filter button.active { background: rgba(79,195,247,0.15); color: #4FC3F7;
+                          border-color: #4FC3F7; }
+  #list { flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: 2px;
+          font-family: "SF Mono", ui-monospace, monospace; font-size: 10px; }
+  .q { display: flex; gap: 6px; align-items: baseline; padding: 2px 0;
+       white-space: nowrap; overflow: hidden; }
+  .q .time { color: #8E8E97; flex: 0 0 auto; }
+  .q .dot { width: 5px; height: 5px; border-radius: 50%; flex: 0 0 auto;
+            display: inline-block; }
+  .q .dot.allowed { background: #66BB6A; }
+  .q .dot.blocked { background: #FF5252; }
+  .q .domain { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .q.blocked .domain { color: #FF8A8A; }
+  .empty { display: flex; height: 100%; align-items: center; justify-content: center;
+           color: #8E8E97; font-size: 12px; text-align: center; padding: 18px; }
+</style>
+</head>
+<body>
+  <div id="root">
+    <div class="header">
+      <div class="title">Live DNS · <b id="filter-label">last 30</b></div>
+      <div class="filter">
+        <button data-f="all" class="active">All</button>
+        <button data-f="blocked">Blocked</button>
+      </div>
+    </div>
+    <div id="list"><div class="empty">Loading…</div></div>
+  </div>
+<script>
+(function(){
+  'use strict';
+
+  var REFRESH_MS = 15 * 1000;
+  var refreshTimer = null;
+  var visible = true;
+  var filter = 'all';
+  var LIMIT = 30;
+
+  function renderEmpty(msg){
+    document.getElementById('list').innerHTML = '<div class="empty">' + msg + '</div>';
+  }
+
+  function formatTime(iso){
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    function pad(n){ return n < 10 ? '0' + n : '' + n; }
+    return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+
+  function render(entries){
+    var list = document.getElementById('list');
+    list.innerHTML = '';
+    if (!entries || !entries.length) {
+      renderEmpty('No queries yet.');
+      return;
+    }
+    entries.slice(0, LIMIT).forEach(function(e){
+      var row = document.createElement('div');
+      row.className = 'q' + (e.blocked ? ' blocked' : '');
+      var t = document.createElement('span'); t.className = 'time'; t.textContent = formatTime(e.time);
+      var dot = document.createElement('span'); dot.className = 'dot ' + (e.blocked ? 'blocked' : 'allowed');
+      var d = document.createElement('span'); d.className = 'domain'; d.textContent = e.question || '';
+      row.appendChild(t); row.appendChild(dot); row.appendChild(d);
+      list.appendChild(row);
+    });
+  }
+
+  function refresh(){
+    iappyx.plugin('adguard-home').isConfigured().then(function(c){
+      if (!c.ok || !c.configured) { renderEmpty('AdGuard not configured.'); return; }
+      return iappyx.plugin('adguard-home').getRecentQueries({
+        limit: LIMIT, filter: filter,
+      }).then(function(r){
+        if (!r.ok) { renderEmpty(r.error || 'Couldn’t load queries.'); return; }
+        render(r.entries);
+      });
+    }).catch(function(){ renderEmpty('Plugin error.'); });
+  }
+
+  // Filter chip wiring.
+  Array.prototype.forEach.call(
+    document.querySelectorAll('.filter button'),
+    function(btn){
+      btn.addEventListener('click', function(){
+        filter = btn.getAttribute('data-f');
+        Array.prototype.forEach.call(
+          document.querySelectorAll('.filter button'),
+          function(b){ b.classList.toggle('active', b === btn); },
+        );
+        document.getElementById('filter-label').textContent =
+          'last ' + LIMIT + (filter === 'blocked' ? ' blocked' : '');
+        refresh();
+      });
+    },
+  );
+
+  function startRefresh(){
+    refresh();
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(function(){ if (visible) refresh(); }, REFRESH_MS);
+  }
+  function stopRefresh(){
+    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+  }
+  if (typeof iappyx !== 'undefined' && iappyx.onVisibilityChange) {
+    iappyx.onVisibilityChange(function(v){
+      visible = !!v;
+      if (visible) startRefresh(); else stopRefresh();
+    });
+  }
+  startRefresh();
+})();
+</script>
+</body>
+</html>

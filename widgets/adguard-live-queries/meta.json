@@ -1,0 +1,10 @@
+{
+  "title": "AdGuard Live Queries",
+  "description": "Auto-scrolling list of the last 30 DNS queries through your AdGuard Home. Red dot + tinted name = blocked, green dot = allowed. Filter chip toggles between All and Blocked. Refreshes every 15 seconds. Requires the AdGuard Home plugin.",
+  "author": "iappyx",
+  "bridges": [],
+  "uses": [
+    "iappyxOS plugin: adguard-home"
+  ],
+  "added": "2026-05-19"
+}

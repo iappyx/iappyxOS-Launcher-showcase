@@ -1,0 +1,21 @@
+{
+  "id": "adguard-home",
+  "name": "AdGuard Home",
+  "description": "Live query stats and one-tap protection toggle for your self-hosted AdGuard Home DNS ad blocker. Widgets show today's block percentage, top blocked domains, recent queries; tile-bound widgets let you toggle protection from any app. URL + Basic-auth credentials stay in encrypted device storage.",
+  "version": "1.0.0",
+  "author": "iappyx",
+  "minLauncher": 1,
+  "background": false,
+  "capabilities": ["http", "secureStore", "storage", "scheduler"],
+  "settingsUi": "settings.html",
+  "defaultNetworkRestriction": "trusted_wifi_or_vpn",
+  "exposes": [
+    { "name": "isConfigured", "args": {} },
+    { "name": "ping",         "args": {} },
+    { "name": "getStatus",    "args": {} },
+    { "name": "getStats",     "args": {} },
+    { "name": "setProtectionEnabled", "args": { "enabled": "bool", "durationMs": "int" } },
+    { "name": "getRecentQueries", "args": { "limit": "int", "filter": "string" } }
+  ],
+  "aiPrompt": "iappyx.plugin('adguard-home') talks to a self-hosted AdGuard Home DNS server (user configures URL + optional Basic-auth credentials via Settings → Plugins → AdGuard Home → Configure). All methods return Promises with an {ok, ...} or {ok:false, error} envelope. An unconfigured plugin returns {ok:false, error:'not configured'}. Surface: isConfigured() → {ok, configured}. ping() → {ok, version, runningAddresses[]}. getStatus() → {ok, running, protectionEnabled, version, dnsAddresses[], protectionDisabledDurationMs}. getStats() → {ok, numDnsQueries, numBlockedFiltering, numReplacedSafebrowsing, numReplacedParental, avgProcessingTime, percentBlocked, topQueried:[{name, count}], topBlocked:[{name, count}], topClients:[{ip, count}], dnsQueries:[number per hour, 24 entries newest-last], blockedFiltering:[same shape]}. setProtectionEnabled({enabled:true|false, durationMs:0}) → {ok, restoreAt:number|null} — durationMs:0 means indefinite, non-zero auto-restores after that many ms. getRecentQueries({limit:50, filter:'all'|'blocked'|'allowed'}) → {ok, entries:[{time, client, clientName, question, qtype, status, blocked, reason, rule, elapsedMs}], more, oldest}. Best widgets: 'block percent today + total queries' (Quick Widget candidate, refresh every 30s while visible), 'top 5 blocked domains today', 'protection toggle' (tap = toggle, long-press = pick duration 1/5/30/60 min), 'live query log scroller'. Rules: NEVER use fetch/XHR — always iappyx.plugin('adguard-home').*. Pause polling when not visible (iappyx.onVisibilityChange). Numbers use Intl.NumberFormat. Empty / unconfigured state should show 'Configure AdGuard in Settings → Plugins' rather than zeros."
+}

@@ -1,0 +1,184 @@
+<!doctype html>
+<!--
+  AdGuard Home plugin — settings page. Launched from Settings →
+  Plugins → AdGuard Home → Configure. Same capability bridges as
+  the runtime, so we read/write credentials via secureStore and
+  probe the server via httpClient.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Configure AdGuard Home</title>
+  <style>
+    :root {
+      --bg: #0d0d12; --panel: #17171f; --line: #2a2a36;
+      --text: #ECECEC; --hint: #8E8E97;
+      --accent: #4FC3F7; --error: #FF5252; --ok: #66BB6A;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%;
+      background: var(--bg); color: var(--text);
+      font: 15px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", Roboto, sans-serif; }
+    .wrap { padding: 20px; padding-top: max(20px, env(safe-area-inset-top));
+      padding-bottom: max(20px, env(safe-area-inset-bottom)); max-width: 640px; margin: 0 auto; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    .sub { color: var(--hint); font-size: 13px; margin-bottom: 18px; }
+    .field { margin-bottom: 16px; }
+    label { display: block; color: var(--hint); font-size: 12px;
+      text-transform: uppercase; letter-spacing: .07em; margin-bottom: 6px; }
+    input[type=text], input[type=password] {
+      width: 100%; background: #0a0a10; color: var(--text);
+      border: 1px solid var(--line); border-radius: 10px;
+      padding: 12px 14px; font: inherit; }
+    input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+    .row { display: flex; gap: 10px; margin-top: 18px; }
+    button { flex: 1; background: transparent; color: var(--text);
+      border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+      font: inherit; cursor: pointer; }
+    button.primary { background: var(--accent); color: #001220;
+      border-color: var(--accent); font-weight: 600; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .status { margin-top: 14px; padding: 10px 12px; border-radius: 8px;
+      font-size: 13px; display: none; }
+    .status.ok { background: rgba(102,187,106,.15); color: var(--ok);
+      border: 1px solid rgba(102,187,106,.4); display: block; }
+    .status.err { background: rgba(255,82,82,.10); color: var(--error);
+      border: 1px solid rgba(255,82,82,.4); display: block; }
+    .hint { color: var(--hint); font-size: 12px; line-height: 1.5; margin-top: 6px; }
+    code { background: #0a0a10; padding: 1px 6px; border-radius: 4px;
+      border: 1px solid var(--line); font-size: 12px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AdGuard Home</h1>
+  <p class="sub">Connect to your self-hosted AdGuard Home DNS ad-blocker. Credentials are stored encrypted; widgets never see them directly.</p>
+
+  <div class="field">
+    <label for="server-url">Server URL</label>
+    <input id="server-url" type="text" autocomplete="off" autocapitalize="off" autocorrect="off"
+           placeholder="http://192.168.1.10:3000" />
+    <p class="hint">Examples: <code>http://192.168.1.10:3000</code>, <code>http://adguard.local:3000</code>, <code>https://adguard.example.com</code>. Port 3000 is AdGuard's default admin UI port. No trailing slash needed.</p>
+  </div>
+
+  <div class="field">
+    <label for="username">Username (optional)</label>
+    <input id="username" type="text" autocomplete="off" autocapitalize="off" autocorrect="off"
+           placeholder="leave blank if AdGuard auth is disabled" />
+  </div>
+
+  <div class="field">
+    <label for="password">Password (optional)</label>
+    <input id="password" type="password" autocomplete="off" autocapitalize="off" autocorrect="off"
+           placeholder="leave blank if AdGuard auth is disabled" />
+    <p class="hint">Send only if your AdGuard install requires login. Encrypted at rest with the device Keystore.</p>
+  </div>
+
+  <div class="row">
+    <button id="test-btn">Test connection</button>
+    <button id="save-btn" class="primary">Save</button>
+  </div>
+
+  <div id="status" class="status"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // Preload from secureStore so re-opening the page shows the current
+  // bound values (password masked by input[type=password]).
+  document.getElementById('server-url').value = iappyx.secureStore.get('serverUrl') || '';
+  document.getElementById('username').value = iappyx.secureStore.get('username') || '';
+  document.getElementById('password').value = iappyx.secureStore.get('password') || '';
+
+  function readForm() {
+    return {
+      serverUrl: document.getElementById('server-url').value.trim().replace(/\/+$/, ''),
+      username: document.getElementById('username').value.trim(),
+      password: document.getElementById('password').value,
+    };
+  }
+
+  function setStatus(kind, message) {
+    var el = document.getElementById('status');
+    el.className = 'status ' + kind;
+    el.textContent = message;
+  }
+
+  function save() {
+    var f = readForm();
+    iappyx.secureStore.set('serverUrl', f.serverUrl);
+    iappyx.secureStore.set('username', f.username);
+    iappyx.secureStore.set('password', f.password);
+  }
+
+  function authHeaderFor(f) {
+    if (!f.username && !f.password) return {};
+    return { 'Authorization': 'Basic ' + btoa(f.username + ':' + f.password) };
+  }
+
+  function testConnection() {
+    var f = readForm();
+    if (!f.serverUrl) {
+      setStatus('err', 'Server URL is required.');
+      return;
+    }
+    setStatus('ok', 'Testing…');
+    var headers = authHeaderFor(f);
+    headers['Accept'] = 'application/json';
+    iappyx.httpClient.fetch({
+      url: f.serverUrl + '/control/status',
+      method: 'GET',
+      headers: headers,
+    }).then(function (r) {
+      if (r.status === 0) {
+        setStatus('err', 'Unreachable — check URL + network.');
+        return;
+      }
+      if (r.status === 401) {
+        setStatus('err', 'Invalid credentials (401).');
+        return;
+      }
+      if (r.status === 403) {
+        setStatus('err', 'Forbidden (403) — user lacks permissions.');
+        return;
+      }
+      if (r.status === 404) {
+        setStatus('err', 'Got 404 — is this really AdGuard Home? The API is at /control/.');
+        return;
+      }
+      if (r.status >= 400) {
+        setStatus('err', 'Server error ' + r.status + '.');
+        return;
+      }
+      var body = null;
+      try { body = JSON.parse(r.body || '{}'); } catch (_) {}
+      if (!body || !body.version) {
+        setStatus('err', 'Connected but response wasn’t AdGuard-shaped.');
+        return;
+      }
+      var protection = body.protection_enabled ? 'on' : 'off';
+      setStatus('ok',
+        'Connected: AdGuard Home v' + body.version +
+        ' · DNS @ ' + (body.dns_addresses || []).join(', ') +
+        ' · protection ' + protection,
+      );
+    }).catch(function (e) {
+      setStatus('err', 'Test failed: ' + (e && e.message || e));
+    });
+  }
+
+  document.getElementById('test-btn').addEventListener('click', function () {
+    save();
+    testConnection();
+  });
+  document.getElementById('save-btn').addEventListener('click', function () {
+    save();
+    setStatus('ok', 'Saved. You can place AdGuard widgets now.');
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,152 @@
+<!-- Built with iappyxOS Launcher -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="iappyx-widget" content="pause">
+<meta name="iappyx-panel-size" content="320x420">
+<title>AdGuard Stats</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: transparent; color: #ECECEC;
+               font-family: -apple-system, Roboto, sans-serif; overflow: hidden; }
+  #root { display: flex; flex-direction: column; align-items: stretch; height: 100%;
+          padding: 14px 16px; box-sizing: border-box; gap: 6px; }
+  .title { color: #8E8E97; font-size: 11px; text-transform: uppercase;
+           letter-spacing: 0.08em; }
+  .shield { font-size: 48px; line-height: 1; margin-top: 8px; }
+  .shield.on  { color: #66BB6A; }
+  .shield.off { color: #FF5252; }
+  .pct  { font-size: 36px; font-weight: 600; margin-top: 6px; }
+  .pct .unit { font-size: 16px; color: #8E8E97; margin-left: 2px; }
+  .row { display: flex; justify-content: space-between; margin-top: 6px;
+         font-size: 12px; color: #8E8E97; }
+  .row b { color: #ECECEC; font-weight: 500; }
+  .empty { display: flex; flex-direction: column; align-items: center; justify-content: center;
+           height: 100%; color: #8E8E97; font-size: 13px; text-align: center; padding: 18px; }
+  .empty a { color: #4FC3F7; text-decoration: none; }
+</style>
+</head>
+<body>
+  <div id="root">
+    <div class="title">AdGuard Home · 24h</div>
+    <div id="body" style="flex:1; display:flex; flex-direction:column; justify-content:center;">
+      <div class="empty" id="loading">Loading…</div>
+    </div>
+  </div>
+<script>
+(function(){
+  'use strict';
+
+  var REFRESH_MS = 30 * 1000;
+  var refreshTimer = null;
+  var visible = true;
+
+  function fmt(n){
+    if (typeof Intl !== 'undefined' && Intl.NumberFormat) {
+      return new Intl.NumberFormat().format(n | 0);
+    }
+    return String(n | 0);
+  }
+
+  function renderEmpty(message, hint){
+    var body = document.getElementById('body');
+    body.innerHTML = '';
+    var box = document.createElement('div');
+    box.className = 'empty';
+    box.innerHTML = message + (hint ? '<br><br><span style="font-size:11px;">' + hint + '</span>' : '');
+    body.appendChild(box);
+  }
+
+  function renderStats(status, stats){
+    var body = document.getElementById('body');
+    body.innerHTML = '';
+    var shield = document.createElement('div');
+    shield.className = 'shield ' + (status.protectionEnabled ? 'on' : 'off');
+    shield.textContent = status.protectionEnabled ? '✔' : '✖'; // ✔ / ✖
+    body.appendChild(shield);
+
+    var pct = document.createElement('div');
+    pct.className = 'pct';
+    pct.innerHTML = (stats.percentBlocked.toFixed(1)) +
+      '<span class="unit">%</span>';
+    body.appendChild(pct);
+
+    var sub = document.createElement('div');
+    sub.style.cssText = 'color:#8E8E97; font-size:12px; margin-top:-2px;';
+    sub.textContent = 'blocked of last 24h';
+    body.appendChild(sub);
+
+    var row1 = document.createElement('div'); row1.className = 'row';
+    row1.innerHTML = '<span>Queries</span><b>' + fmt(stats.numDnsQueries) + '</b>';
+    var row2 = document.createElement('div'); row2.className = 'row';
+    row2.innerHTML = '<span>Blocked</span><b>' + fmt(stats.numBlockedFiltering) + '</b>';
+    body.appendChild(row1);
+    body.appendChild(row2);
+
+    if (!status.protectionEnabled) {
+      var warn = document.createElement('div');
+      warn.style.cssText = 'margin-top:auto; color:#FF5252; font-size:11px; text-align:center;';
+      warn.textContent = 'Protection is off';
+      body.appendChild(warn);
+    }
+  }
+
+  function refresh(){
+    iappyx.plugin('adguard-home').isConfigured().then(function(c){
+      if (!c.ok || !c.configured) {
+        renderEmpty(
+          'AdGuard Home not configured.',
+          'Settings &rarr; Plugins &rarr; AdGuard Home &rarr; Configure',
+        );
+        return;
+      }
+      return Promise.all([
+        iappyx.plugin('adguard-home').getStatus(),
+        iappyx.plugin('adguard-home').getStats(),
+      ]).then(function(results){
+        var status = results[0];
+        var stats = results[1];
+        if (!status.ok) {
+          renderEmpty('Couldn’t reach AdGuard.', status.error || '');
+          return;
+        }
+        if (!stats.ok) {
+          renderEmpty('Couldn’t load stats.', stats.error || '');
+          return;
+        }
+        renderStats(status, stats);
+      });
+    }).catch(function(e){
+      renderEmpty('Plugin error.', String(e && e.message || e));
+    });
+  }
+
+  function startRefresh(){
+    refresh();
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(function(){
+      if (visible) refresh();
+    }, REFRESH_MS);
+  }
+  function stopRefresh(){
+    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+  }
+
+  // Pause network calls when the widget isn't visible (off-screen
+  // page, app backgrounded). iappyx.onVisibilityChange fires for
+  // both reasons so a paused widget doesn't burn the user's
+  // AdGuard server or their battery.
+  if (typeof iappyx !== 'undefined' && iappyx.onVisibilityChange) {
+    iappyx.onVisibilityChange(function(v){
+      visible = !!v;
+      if (visible) startRefresh();
+      else stopRefresh();
+    });
+  }
+
+  startRefresh();
+})();
+</script>
+</body>
+</html>

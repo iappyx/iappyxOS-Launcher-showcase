@@ -126,6 +126,61 @@
         "storage"
       ],
       "added": "2026-04-29"
+    },
+    {
+      "slug": "adguard-stats",
+      "title": "AdGuard Stats",
+      "description": "Today's block percentage, total queries, and blocked count for your self-hosted AdGuard Home. Big shield indicator goes green when protection is on, red when off. Requires the AdGuard Home plugin.",
+      "author": "iappyx",
+      "bridges": [],
+      "uses": [
+        "iappyxOS plugin: adguard-home"
+      ],
+      "added": "2026-05-19"
+    },
+    {
+      "slug": "adguard-protection-toggle",
+      "title": "AdGuard Protection Toggle",
+      "description": "One-tap toggle for your AdGuard Home protection. Tap to flip on/off; long-press for a duration picker (1 min / 5 min / 30 min / 1 hour / indefinite). Shows auto-restore countdown when disabled. Ideal Quick Widget tile candidate. Requires the AdGuard Home plugin.",
+      "author": "iappyx",
+      "bridges": [],
+      "uses": [
+        "iappyxOS plugin: adguard-home"
+      ],
+      "added": "2026-05-19"
+    },
+    {
+      "slug": "adguard-top-blocked",
+      "title": "AdGuard Top Blocked",
+      "description": "Top blocked domains from your AdGuard Home, 24-hour window. Each row shows the domain, block count, and a proportional bar so the biggest offenders stand out. Refreshes every minute. Requires the AdGuard Home plugin.",
+      "author": "iappyx",
+      "bridges": [],
+      "uses": [
+        "iappyxOS plugin: adguard-home"
+      ],
+      "added": "2026-05-19"
+    },
+    {
+      "slug": "adguard-top-clients",
+      "title": "AdGuard Top Clients",
+      "description": "Top DNS clients on your network by query count, 24-hour window. Each row shows the IP address, query count, and a proportional bar. Useful for spotting unusually chatty devices. Requires the AdGuard Home plugin.",
+      "author": "iappyx",
+      "bridges": [],
+      "uses": [
+        "iappyxOS plugin: adguard-home"
+      ],
+      "added": "2026-05-19"
+    },
+    {
+      "slug": "adguard-live-queries",
+      "title": "AdGuard Live Queries",
+      "description": "Auto-scrolling list of the last 30 DNS queries through your AdGuard Home. Red dot + tinted name = blocked, green dot = allowed. Filter chip toggles between All and Blocked. Refreshes every 15 seconds. Requires the AdGuard Home plugin.",
+      "author": "iappyx",
+      "bridges": [],
+      "uses": [
+        "iappyxOS plugin: adguard-home"
+      ],
+      "added": "2026-05-19"
     }
   ],
   "wallpapers": [
@@ -598,6 +653,13 @@
       "description": "Generic MQTT 3.1.1 broker client for widgets and wallpapers. Subscribe + publish over TCP, TLS, or WebSocket. Surface via iappyx.plugin('mqtt').*. Pure local-network by default — credentials never leave the device on a hostile network. Self-signed certs accepted for LAN brokers (Mosquitto on Raspberry Pi, Home Assistant's built-in broker, EMQX in Docker).",
       "author": "iappyx",
       "added": "2026-05-14"
+    },
+    {
+      "slug": "adguard-home",
+      "title": "AdGuard Home",
+      "description": "Live block stats + one-tap protection toggle for your self-hosted AdGuard Home. Widgets surface today's block percentage, top blocked domains, and a Quick-Widget-friendly protection toggle. URL + Basic-auth credentials in encrypted device storage.",
+      "author": "iappyx",
+      "added": "2026-05-19"
     }
   ]
 }

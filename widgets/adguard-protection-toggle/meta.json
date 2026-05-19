@@ -1,0 +1,10 @@
+{
+  "title": "AdGuard Protection Toggle",
+  "description": "One-tap toggle for your AdGuard Home protection. Tap to flip on/off; long-press for a duration picker (1 min / 5 min / 30 min / 1 hour / indefinite). Shows auto-restore countdown when disabled. Ideal Quick Widget tile candidate. Requires the AdGuard Home plugin.",
+  "author": "iappyx",
+  "bridges": [],
+  "uses": [
+    "iappyxOS plugin: adguard-home"
+  ],
+  "added": "2026-05-19"
+}

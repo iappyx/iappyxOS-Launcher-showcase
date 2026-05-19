@@ -1,0 +1,6 @@
+{
+  "title": "AdGuard Home",
+  "description": "Live block stats + one-tap protection toggle for your self-hosted AdGuard Home. Widgets surface today's block percentage, top blocked domains, and a Quick-Widget-friendly protection toggle. URL + Basic-auth credentials in encrypted device storage.",
+  "author": "iappyx",
+  "added": "2026-05-19"
+}

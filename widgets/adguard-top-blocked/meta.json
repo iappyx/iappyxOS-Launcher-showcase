@@ -1,0 +1,10 @@
+{
+  "title": "AdGuard Top Blocked",
+  "description": "Top blocked domains from your AdGuard Home, 24-hour window. Each row shows the domain, block count, and a proportional bar so the biggest offenders stand out. Refreshes every minute. Requires the AdGuard Home plugin.",
+  "author": "iappyx",
+  "bridges": [],
+  "uses": [
+    "iappyxOS plugin: adguard-home"
+  ],
+  "added": "2026-05-19"
+}

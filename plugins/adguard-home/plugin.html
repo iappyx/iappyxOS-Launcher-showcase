@@ -1,0 +1,280 @@
+<!doctype html>
+<!--
+  AdGuard Home plugin — runtime. Hidden WebView; never user-visible.
+
+  Surface (all return Promises):
+    iappyx.plugin('adguard-home').isConfigured()
+    iappyx.plugin('adguard-home').ping()
+    iappyx.plugin('adguard-home').getStatus()
+    iappyx.plugin('adguard-home').getStats()
+    iappyx.plugin('adguard-home').setProtectionEnabled({enabled, durationMs})
+
+  Credentials (URL + optional Basic-auth user/pass) live in
+  iappyx.secureStore. The Configure page (settings.html) writes them;
+  runtime re-reads on every call so a credential update applies
+  immediately without reloading the plugin WebView.
+
+  AdGuard's REST API lives at <serverUrl>/control/* and accepts HTTP
+  Basic auth (Authorization: Basic base64(user:pass)). Auth is
+  optional — some installs are open on the LAN; we send the header
+  only when both fields are populated.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>AdGuard Home plugin</title>
+</head>
+<body>
+<script>
+(function () {
+  'use strict';
+
+  function creds() {
+    return {
+      // Strip trailing slashes — endpoint paths start with /control/...
+      serverUrl: (iappyx.secureStore.get('serverUrl') || '').replace(/\/+$/, ''),
+      username: iappyx.secureStore.get('username') || '',
+      password: iappyx.secureStore.get('password') || '',
+    };
+  }
+
+  function ok(extra)    { return Object.assign({ ok: true }, extra || {}); }
+  function err(message) { return { ok: false, error: message }; }
+
+  /** Build the Authorization header for AdGuard. Returns an empty
+   *  object when no credentials are set — AdGuard Home supports
+   *  auth-less mode and we shouldn't send a bogus header. */
+  function authHeader(c) {
+    if (!c.username && !c.password) return {};
+    // btoa is available in WebView; AdGuard expects standard Base64
+    // of "user:pass". No URL encoding.
+    var token = btoa(c.username + ':' + c.password);
+    return { 'Authorization': 'Basic ' + token };
+  }
+
+  function authedGet(path) {
+    var c = creds();
+    if (!c.serverUrl) {
+      return Promise.resolve({ status: 0, body: null, raw: '', error: 'not configured' });
+    }
+    var headers = authHeader(c);
+    headers['Accept'] = 'application/json';
+    return iappyx.httpClient.fetch({
+      url: c.serverUrl + path,
+      method: 'GET',
+      headers: headers,
+    }).then(function (r) {
+      var parsed = null;
+      try { parsed = r.body ? JSON.parse(r.body) : null; } catch (_) { /* plain text */ }
+      return { status: r.status, body: parsed, raw: r.body };
+    });
+  }
+
+  function authedPost(path, jsonObj) {
+    var c = creds();
+    if (!c.serverUrl) {
+      return Promise.resolve({ status: 0, body: null, raw: '', error: 'not configured' });
+    }
+    var headers = authHeader(c);
+    headers['Content-Type'] = 'application/json';
+    headers['Accept'] = 'application/json';
+    return iappyx.httpClient.fetch({
+      url: c.serverUrl + path,
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(jsonObj || {}),
+    }).then(function (r) {
+      var parsed = null;
+      try { parsed = r.body ? JSON.parse(r.body) : null; } catch (_) { /* */ }
+      return { status: r.status, body: parsed, raw: r.body };
+    });
+  }
+
+  /** Map common HTTP error responses to user-meaningful errors.
+   *  AdGuard returns 401/403 on bad creds, 404 when path is wrong
+   *  (older versions), 500 when the engine isn't fully started. */
+  function mapErr(r) {
+    if (r.error) return r.error;
+    if (r.status === 0) return 'unreachable';
+    if (r.status === 401) return 'invalid credentials';
+    if (r.status === 403) return 'forbidden — check user permissions';
+    if (r.status === 404) return 'endpoint not found — is this AdGuard Home?';
+    if (r.status >= 500) return 'server error ' + r.status;
+    if (r.status >= 400) return 'request failed ' + r.status;
+    return null;
+  }
+
+  /** Percent helper. AdGuard reports raw counts; widgets typically
+   *  want the percentage of queries that got blocked. Safe against
+   *  zero queries (returns 0, not NaN). */
+  function pct(num, denom) {
+    if (!denom || denom <= 0) return 0;
+    return Math.round((num / denom) * 1000) / 10;
+  }
+
+  iappyx.plugin.export({
+
+    isConfigured: function () {
+      var c = creds();
+      return ok({ configured: !!c.serverUrl });
+    },
+
+    /** Lightweight reachability probe — used by settings.html's
+     *  "Test connection" button. Hits /control/status, returns
+     *  version + DNS bind addresses so the user can sanity-check
+     *  they're pointed at the right instance. */
+    ping: function () {
+      return authedGet('/control/status').then(function (r) {
+        var e = mapErr(r);
+        if (e) return err(e);
+        var b = r.body || {};
+        return ok({
+          version: b.version || 'unknown',
+          runningAddresses: b.dns_addresses || [],
+          protectionEnabled: !!b.protection_enabled,
+        });
+      });
+    },
+
+    /** Full status: running flag, protection state, version, DNS
+     *  bind addresses, current protection-disabled duration (so a
+     *  toggle widget knows how long until auto-restore). */
+    getStatus: function () {
+      return authedGet('/control/status').then(function (r) {
+        var e = mapErr(r);
+        if (e) return err(e);
+        var b = r.body || {};
+        return ok({
+          running: !!b.running,
+          version: b.version || 'unknown',
+          protectionEnabled: !!b.protection_enabled,
+          // AdGuard reports remaining seconds when protection is
+          // temporarily disabled; surfaces as ms for consistency
+          // with our setProtectionEnabled durationMs.
+          protectionDisabledDurationMs:
+            (b.protection_disabled_duration ? b.protection_disabled_duration * 1000 : 0),
+          dnsAddresses: b.dns_addresses || [],
+          httpPort: b.http_port || null,
+        });
+      });
+    },
+
+    /** 24-hour stats aggregated by AdGuard's internal stats engine.
+     *  Shape mirrors /control/stats with light renaming + percent
+     *  pre-computed. Empty arrays when the user has stats disabled
+     *  on the server side. */
+    getStats: function () {
+      return authedGet('/control/stats').then(function (r) {
+        var e = mapErr(r);
+        if (e) return err(e);
+        var b = r.body || {};
+        // Top arrays come back as [{ "domain.com": count }, ...] —
+        // flatten to [{name, count}] for easier widget consumption.
+        function flatten(arr) {
+          if (!Array.isArray(arr)) return [];
+          var out = [];
+          arr.forEach(function (entry) {
+            if (!entry || typeof entry !== 'object') return;
+            var keys = Object.keys(entry);
+            if (keys.length === 0) return;
+            var k = keys[0];
+            out.push({ name: k, count: entry[k] | 0 });
+          });
+          return out;
+        }
+        var total = b.num_dns_queries | 0;
+        var blocked = b.num_blocked_filtering | 0;
+        return ok({
+          numDnsQueries: total,
+          numBlockedFiltering: blocked,
+          numReplacedSafebrowsing: b.num_replaced_safebrowsing | 0,
+          numReplacedParental: b.num_replaced_parental | 0,
+          avgProcessingTime: b.avg_processing_time || 0,
+          percentBlocked: pct(blocked, total),
+          topQueried: flatten(b.top_queried_domains),
+          topBlocked: flatten(b.top_blocked_domains),
+          topClients: flatten(b.top_clients).map(function (c) {
+            // Top clients come keyed by IP; widget consumers care
+            // about the IP and the count.
+            return { ip: c.name, count: c.count };
+          }),
+          dnsQueries: Array.isArray(b.dns_queries) ? b.dns_queries : [],
+          blockedFiltering: Array.isArray(b.blocked_filtering) ? b.blocked_filtering : [],
+        });
+      });
+    },
+
+    /** Recent DNS queries from AdGuard's query log. Used by the Live
+     *  Queries widget. `filter` is one of 'all' / 'blocked' /
+     *  'allowed' (mapped to AdGuard's response_status values). Returns
+     *  a simplified [{time, client, question, qtype, status, blocked,
+     *  reason, rule}] shape; widgets that need more raw fields can
+     *  consume r.body directly via a custom plugin method later. */
+    getRecentQueries: function (args) {
+        var limit = Math.max(1, Math.min(500, (args && args.limit) | 0 || 50));
+        var filter = (args && args.filter) || 'all';
+        var qs = '?limit=' + limit + '&offset=0';
+        if (filter === 'blocked')      qs += '&response_status=blocked';
+        else if (filter === 'allowed') qs += '&response_status=processed';
+        return authedGet('/control/querylog' + qs).then(function (r) {
+          var e = mapErr(r);
+          if (e) return err(e);
+          var b = r.body || {};
+          var rows = Array.isArray(b.data) ? b.data : [];
+          var entries = rows.map(function (q) {
+            var blocked = q.reason && q.reason.indexOf('Filtered') === 0;
+            return {
+              time: q.time || null,
+              client: q.client || '',
+              clientName: (q.client_info && q.client_info.name) || '',
+              question: (q.question && q.question.name) || '',
+              qtype: (q.question && q.question.type) || '',
+              status: q.status || '',
+              blocked: !!blocked,
+              reason: q.reason || '',
+              rule: q.rule || '',
+              elapsedMs: q.elapsedMs || 0,
+            };
+          });
+          return ok({
+            entries: entries,
+            oldest: b.oldest || null,
+            more: !!b.more,
+          });
+        });
+    },
+
+    /** Toggle global protection. `enabled:false, durationMs:600000`
+     *  disables for 10 minutes then auto-restores. `durationMs:0`
+     *  is indefinite. AdGuard's endpoint takes seconds for older
+     *  versions and ms for newer (>= 0.107) — we always send ms;
+     *  if the call fails with 400 we retry with seconds for back-
+     *  compat. */
+    setProtectionEnabled: function (args) {
+      var enabled = !!(args && args.enabled);
+      var durationMs = (args && args.durationMs) | 0;
+      var body = { enabled: enabled, duration: durationMs };
+      return authedPost('/control/protection', body).then(function (r) {
+        // Back-compat retry path for older AdGuard builds that
+        // expect seconds rather than ms.
+        if (r.status === 400 && durationMs > 0) {
+          return authedPost('/control/protection', {
+            enabled: enabled, duration: Math.round(durationMs / 1000),
+          });
+        }
+        return r;
+      }).then(function (r) {
+        var e = mapErr(r);
+        if (e) return err(e);
+        return ok({
+          enabled: enabled,
+          restoreAt: (!enabled && durationMs > 0) ? Date.now() + durationMs : null,
+        });
+      });
+    },
+
+  });
+})();
+</script>
+</body>
+</html>

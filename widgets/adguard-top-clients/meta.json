@@ -1,0 +1,10 @@
+{
+  "title": "AdGuard Top Clients",
+  "description": "Top DNS clients on your network by query count, 24-hour window. Each row shows the IP address, query count, and a proportional bar. Useful for spotting unusually chatty devices. Requires the AdGuard Home plugin.",
+  "author": "iappyx",
+  "bridges": [],
+  "uses": [
+    "iappyxOS plugin: adguard-home"
+  ],
+  "added": "2026-05-19"
+}

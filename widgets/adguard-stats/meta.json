@@ -1,0 +1,10 @@
+{
+  "title": "AdGuard Stats",
+  "description": "Today's block percentage, total queries, and blocked count for your self-hosted AdGuard Home. Big shield indicator goes green when protection is on, red when off. Requires the AdGuard Home plugin.",
+  "author": "iappyx",
+  "bridges": [],
+  "uses": [
+    "iappyxOS plugin: adguard-home"
+  ],
+  "added": "2026-05-19"
+}

@@ -1,0 +1,112 @@
+<!-- Built with iappyxOS Launcher -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="iappyx-widget" content="pause">
+<title>AdGuard Top Clients</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: transparent; color: #ECECEC;
+               font-family: -apple-system, Roboto, sans-serif; overflow: hidden;
+               -webkit-user-select: none; user-select: none; }
+  #root { display: flex; flex-direction: column; padding: 12px 14px; box-sizing: border-box;
+          height: 100%; }
+  .title { color: #8E8E97; font-size: 10px; text-transform: uppercase;
+           letter-spacing: 0.08em; margin-bottom: 8px; flex: 0 0 auto; }
+  .title b { color: #ECECEC; font-weight: 500; text-transform: none; letter-spacing: 0; }
+  #list { flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: 4px; }
+  .row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 4px 0; }
+  .row .ip { flex: 1; color: #ECECEC; font-family: "SF Mono", ui-monospace, monospace;
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .count { color: #4FC3F7; font-variant-numeric: tabular-nums;
+                font-size: 11px; flex: 0 0 auto; }
+  .bar { height: 2px; background: rgba(79,195,247,0.3); border-radius: 1px; margin-top: 2px; }
+  .bar-fill { height: 100%; background: #4FC3F7; border-radius: 1px; }
+  .empty { display: flex; height: 100%; align-items: center; justify-content: center;
+           color: #8E8E97; font-size: 12px; text-align: center; padding: 18px; }
+</style>
+</head>
+<body>
+  <div id="root">
+    <div class="title">Top clients · <b>24h</b></div>
+    <div id="list"><div class="empty">Loading…</div></div>
+  </div>
+<script>
+(function(){
+  'use strict';
+
+  var REFRESH_MS = 60 * 1000;
+  var refreshTimer = null;
+  var visible = true;
+
+  function fmt(n){
+    if (typeof Intl !== 'undefined' && Intl.NumberFormat) {
+      return new Intl.NumberFormat().format(n | 0);
+    }
+    return String(n | 0);
+  }
+
+  function renderEmpty(msg){
+    document.getElementById('list').innerHTML = '<div class="empty">' + msg + '</div>';
+  }
+
+  function render(clients){
+    var list = document.getElementById('list');
+    list.innerHTML = '';
+    if (!clients || !clients.length) {
+      renderEmpty('No client queries yet.');
+      return;
+    }
+    var max = clients[0].count || 1;
+    var limit = Math.min(clients.length, 7);
+    for (var i = 0; i < limit; i++) {
+      var c = clients[i];
+      var row = document.createElement('div'); row.className = 'row';
+      var inner = document.createElement('div');
+      inner.style.cssText = 'flex:1; display:flex; flex-direction:column; min-width:0;';
+      var line = document.createElement('div');
+      line.style.cssText = 'display:flex; align-items:center; gap:8px;';
+      var ipEl = document.createElement('div'); ipEl.className = 'ip'; ipEl.textContent = c.ip || '(unknown)';
+      var cntEl = document.createElement('div'); cntEl.className = 'count'; cntEl.textContent = fmt(c.count);
+      line.appendChild(ipEl); line.appendChild(cntEl);
+      inner.appendChild(line);
+      var bar = document.createElement('div'); bar.className = 'bar';
+      var fill = document.createElement('div'); fill.className = 'bar-fill';
+      fill.style.width = Math.max(2, Math.round((c.count / max) * 100)) + '%';
+      bar.appendChild(fill);
+      inner.appendChild(bar);
+      row.appendChild(inner);
+      list.appendChild(row);
+    }
+  }
+
+  function refresh(){
+    iappyx.plugin('adguard-home').isConfigured().then(function(c){
+      if (!c.ok || !c.configured) { renderEmpty('AdGuard not configured.'); return; }
+      return iappyx.plugin('adguard-home').getStats().then(function(s){
+        if (!s.ok) { renderEmpty(s.error || 'Couldn’t load stats.'); return; }
+        render(s.topClients);
+      });
+    }).catch(function(){ renderEmpty('Plugin error.'); });
+  }
+
+  function startRefresh(){
+    refresh();
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(function(){ if (visible) refresh(); }, REFRESH_MS);
+  }
+  function stopRefresh(){
+    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+  }
+  if (typeof iappyx !== 'undefined' && iappyx.onVisibilityChange) {
+    iappyx.onVisibilityChange(function(v){
+      visible = !!v;
+      if (visible) startRefresh(); else stopRefresh();
+    });
+  }
+  startRefresh();
+})();
+</script>
+</body>
+</html>

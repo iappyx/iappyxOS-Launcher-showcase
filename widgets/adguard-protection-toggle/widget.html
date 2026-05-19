@@ -1,0 +1,264 @@
+<!-- Built with iappyxOS Launcher -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta name="iappyx-widget" content="pause">
+<title>AdGuard Protection</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: transparent; color: #ECECEC;
+               font-family: -apple-system, Roboto, sans-serif; overflow: hidden;
+               -webkit-user-select: none; user-select: none; }
+  #root { display: flex; flex-direction: column; align-items: center; justify-content: center;
+          height: 100%; gap: 6px; padding: 10px; box-sizing: border-box; cursor: pointer; }
+  .shield { font-size: 48px; line-height: 1; transition: color 200ms ease; }
+  .shield.on  { color: #66BB6A; }
+  .shield.off { color: #FF5252; }
+  .shield.unknown { color: #8E8E97; }
+  .label { font-size: 13px; font-weight: 600; }
+  .label.on  { color: #66BB6A; }
+  .label.off { color: #FF5252; }
+  .countdown { font-size: 10px; color: #8E8E97; }
+  .hint { font-size: 9px; color: #8E8E97; opacity: 0.7; margin-top: 2px; text-align: center; }
+  .menu-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.65); display: flex;
+             align-items: center; justify-content: center; z-index: 10; }
+  .menu { background: #17171f; border: 1px solid #2a2a36; border-radius: 12px;
+          padding: 10px; min-width: 200px; display: flex; flex-direction: column; gap: 4px; }
+  .menu .row { padding: 10px 14px; border-radius: 8px; cursor: pointer; font-size: 13px;
+               color: #ECECEC; }
+  .menu .row:hover { background: rgba(255,255,255,0.04); }
+  .menu .row.danger { color: #FF5252; }
+  .menu .row.cancel { color: #8E8E97; text-align: center; border-top: 1px solid #2a2a36;
+                      margin-top: 4px; padding-top: 10px; border-radius: 0; }
+  .spinner { font-size: 11px; color: #8E8E97; }
+</style>
+</head>
+<body>
+  <div id="root">
+    <div id="shield" class="shield unknown">●</div>
+    <div id="label" class="label" style="color:#8E8E97;">Loading…</div>
+    <div id="countdown" class="countdown"></div>
+    <div class="hint">Tap: toggle · Long-press: duration</div>
+  </div>
+<script>
+(function(){
+  'use strict';
+
+  var REFRESH_MS = 15 * 1000;
+  var refreshTimer = null;
+  var countdownTimer = null;
+  var visible = true;
+  var status = null;
+  var busy = false;
+
+  function setShield(state){
+    var s = document.getElementById('shield');
+    var l = document.getElementById('label');
+    s.classList.remove('on','off','unknown');
+    l.classList.remove('on','off');
+    if (state === 'on')      { s.classList.add('on');  s.textContent = '✔';
+                               l.classList.add('on');  l.textContent = 'Protection ON'; }
+    else if (state === 'off'){ s.classList.add('off'); s.textContent = '✖';
+                               l.classList.add('off'); l.textContent = 'Protection OFF'; }
+    else                     { s.classList.add('unknown'); s.textContent = '●';
+                               l.textContent = '—'; l.style.color = '#8E8E97'; }
+  }
+
+  function setCountdown(text){
+    document.getElementById('countdown').textContent = text || '';
+  }
+
+  function formatRemaining(ms){
+    if (ms <= 0) return '';
+    var s = Math.ceil(ms / 1000);
+    if (s < 60) return s + 's until auto-restore';
+    var m = Math.ceil(s / 60);
+    if (m < 60) return m + 'm until auto-restore';
+    var h = Math.floor(m / 60);
+    return h + 'h ' + (m % 60) + 'm until auto-restore';
+  }
+
+  function refreshCountdown(){
+    if (!status || !status.protectionEnabled === false) {
+      if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+      return;
+    }
+    var remaining = (status.restoreAt || 0) - Date.now();
+    if (remaining <= 0) {
+      // Auto-restore should have fired server-side; pull fresh state.
+      if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+      refresh();
+      return;
+    }
+    setCountdown(formatRemaining(remaining));
+  }
+
+  function startCountdown(){
+    if (countdownTimer) clearInterval(countdownTimer);
+    refreshCountdown();
+    countdownTimer = setInterval(refreshCountdown, 1000);
+  }
+
+  function applyStatus(s){
+    status = s;
+    if (!s || !s.ok) {
+      setShield('unknown');
+      var l = document.getElementById('label');
+      l.textContent = (s && s.error) || 'Unavailable';
+      l.style.color = '#8E8E97';
+      setCountdown('');
+      if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+      return;
+    }
+    if (s.protectionEnabled) {
+      setShield('on');
+      setCountdown('');
+      if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+    } else {
+      setShield('off');
+      if (s.protectionDisabledDurationMs > 0) {
+        s.restoreAt = Date.now() + s.protectionDisabledDurationMs;
+        startCountdown();
+      } else {
+        setCountdown('Indefinite');
+        if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+      }
+    }
+  }
+
+  function refresh(){
+    if (busy) return;
+    iappyx.plugin('adguard-home').isConfigured().then(function(c){
+      if (!c.ok || !c.configured) {
+        applyStatus({ ok: false, error: 'Not configured' });
+        return;
+      }
+      return iappyx.plugin('adguard-home').getStatus().then(applyStatus);
+    }).catch(function(){
+      applyStatus({ ok: false, error: 'Plugin error' });
+    });
+  }
+
+  function toggle(durationMs){
+    if (busy) return;
+    if (!status || !status.ok) { refresh(); return; }
+    busy = true;
+    var nextEnabled = !status.protectionEnabled;
+    // Optimistic UI flip — feels snappier than waiting on the server.
+    applyStatus({
+      ok: true,
+      protectionEnabled: nextEnabled,
+      protectionDisabledDurationMs: nextEnabled ? 0 : (durationMs || 0),
+    });
+    iappyx.plugin('adguard-home').setProtectionEnabled({
+      enabled: nextEnabled,
+      durationMs: durationMs || 0,
+    }).then(function(r){
+      busy = false;
+      if (!r.ok) {
+        // Roll back optimistic state on failure.
+        refresh();
+      } else {
+        // Re-fetch authoritative state in case server adjusted the
+        // duration or other fields.
+        setTimeout(refresh, 200);
+      }
+    }).catch(function(){
+      busy = false;
+      refresh();
+    });
+  }
+
+  // ── Duration picker (long-press menu) ────────────────────
+  var pressTimer = null;
+  var longPressed = false;
+
+  function openMenu(){
+    longPressed = true;
+    var bg = document.createElement('div'); bg.className = 'menu-bg';
+    var menu = document.createElement('div'); menu.className = 'menu';
+    var title = document.createElement('div');
+    title.style.cssText = 'padding:8px 14px 4px; font-size:11px; color:#8E8E97; text-transform:uppercase; letter-spacing:0.06em;';
+    title.textContent = 'Disable protection for…';
+    menu.appendChild(title);
+    [
+      { label: '1 minute',  ms: 60 * 1000 },
+      { label: '5 minutes', ms: 5 * 60 * 1000 },
+      { label: '30 minutes',ms: 30 * 60 * 1000 },
+      { label: '1 hour',    ms: 60 * 60 * 1000 },
+      { label: 'Indefinitely', ms: 0, danger: true },
+    ].forEach(function(opt){
+      var row = document.createElement('div');
+      row.className = 'row' + (opt.danger ? ' danger' : '');
+      row.textContent = opt.label;
+      row.onclick = function(e){
+        e.stopPropagation();
+        teardown();
+        // If protection is already off, the menu lets the user
+        // EXTEND the off period rather than re-enabling.
+        if (status && status.ok && !status.protectionEnabled) {
+          // Just send a setProtectionEnabled(false, ms) without flipping.
+          busy = true;
+          iappyx.plugin('adguard-home').setProtectionEnabled({
+            enabled: false, durationMs: opt.ms,
+          }).then(function(){ busy = false; setTimeout(refresh, 200); })
+            .catch(function(){ busy = false; refresh(); });
+        } else {
+          toggle(opt.ms);
+        }
+      };
+      menu.appendChild(row);
+    });
+    var cancel = document.createElement('div');
+    cancel.className = 'row cancel';
+    cancel.textContent = 'Cancel';
+    cancel.onclick = function(e){ e.stopPropagation(); teardown(); };
+    menu.appendChild(cancel);
+    bg.appendChild(menu);
+    bg.onclick = teardown;
+    document.body.appendChild(bg);
+    function teardown(){ try { document.body.removeChild(bg); } catch(_){} }
+  }
+
+  var root = document.getElementById('root');
+  root.addEventListener('pointerdown', function(){
+    longPressed = false;
+    if (pressTimer) clearTimeout(pressTimer);
+    pressTimer = setTimeout(function(){ openMenu(); }, 500);
+  });
+  function clearPress(){
+    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+  }
+  root.addEventListener('pointerup', function(){
+    clearPress();
+    if (!longPressed) toggle(0);
+  });
+  root.addEventListener('pointercancel', clearPress);
+  root.addEventListener('pointerleave', clearPress);
+
+  function startRefresh(){
+    refresh();
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshTimer = setInterval(function(){
+      if (visible) refresh();
+    }, REFRESH_MS);
+  }
+  function stopRefresh(){
+    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+    if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+  }
+
+  if (typeof iappyx !== 'undefined' && iappyx.onVisibilityChange) {
+    iappyx.onVisibilityChange(function(v){
+      visible = !!v;
+      if (visible) startRefresh();
+      else stopRefresh();
+    });
+  }
+
+  startRefresh();
+})();
+</script>
+</body>
+</html>
