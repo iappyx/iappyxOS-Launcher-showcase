@@ -8,30 +8,30 @@
 <title>AdGuard Protection</title>
 <style>
   html, body { margin: 0; padding: 0; height: 100%; background: transparent; color: #ECECEC;
-               font-family: -apple-system, Roboto, sans-serif; overflow: hidden;
+               font-family: var(--iappyx-font); overflow: hidden;
                -webkit-user-select: none; user-select: none; }
   #root { display: flex; flex-direction: column; align-items: center; justify-content: center;
           height: 100%; gap: 6px; padding: 10px; box-sizing: border-box; cursor: pointer; }
   .shield { font-size: 48px; line-height: 1; transition: color 200ms ease; }
-  .shield.on  { color: #66BB6A; }
-  .shield.off { color: #FF5252; }
-  .shield.unknown { color: #8E8E97; }
-  .label { font-size: 13px; font-weight: 600; }
-  .label.on  { color: #66BB6A; }
-  .label.off { color: #FF5252; }
-  .countdown { font-size: 10px; color: #8E8E97; }
-  .hint { font-size: 9px; color: #8E8E97; opacity: 0.7; margin-top: 2px; text-align: center; }
+  .shield.on  { color: var(--iappyx-positive); }
+  .shield.off { color: var(--iappyx-negative); }
+  .shield.unknown { color: var(--iappyx-neutral); }
+  .label { font-size: 13px; font-weight: var(--iappyx-weight-bold); }
+  .label.on  { color: var(--iappyx-positive); }
+  .label.off { color: var(--iappyx-negative); }
+  .countdown { font-size: 10px; color: var(--iappyx-neutral); }
+  .hint { font-size: 9px; color: var(--iappyx-neutral); opacity: 0.7; margin-top: 2px; text-align: center; }
   .menu-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.65); display: flex;
              align-items: center; justify-content: center; z-index: 10; }
-  .menu { background: #17171f; border: 1px solid #2a2a36; border-radius: 12px;
+  .menu { background: var(--iappyx-surface); border: 1px solid var(--iappyx-neutral); border-radius: var(--iappyx-radius);
           padding: 10px; min-width: 200px; display: flex; flex-direction: column; gap: 4px; }
-  .menu .row { padding: 10px 14px; border-radius: 8px; cursor: pointer; font-size: 13px;
-               color: #ECECEC; }
+  .menu .row { padding: 10px 14px; border-radius: var(--iappyx-radius-sm); cursor: pointer; font-size: 13px;
+               color: var(--iappyx-on-surface); }
   .menu .row:hover { background: rgba(255,255,255,0.04); }
-  .menu .row.danger { color: #FF5252; }
-  .menu .row.cancel { color: #8E8E97; text-align: center; border-top: 1px solid #2a2a36;
+  .menu .row.danger { color: var(--iappyx-negative); }
+  .menu .row.cancel { color: var(--iappyx-neutral); text-align: center; border-top: 1px solid var(--iappyx-neutral);
                       margin-top: 4px; padding-top: 10px; border-radius: 0; }
-  .spinner { font-size: 11px; color: #8E8E97; }
+  .spinner { font-size: 11px; color: var(--iappyx-neutral); }
 </style>
 </head>
 <body>

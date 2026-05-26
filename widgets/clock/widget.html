@@ -8,11 +8,11 @@
 <title>Clock</title>
 <style>
   html, body { margin: 0; padding: 0; height: 100%; background: transparent; color: #fff;
-               font-family: -apple-system, Roboto, sans-serif; overflow: hidden; }
+               font-family: var(--iappyx-font); overflow: hidden; }
   #root { display: flex; flex-direction: column; align-items: center; justify-content: center;
           height: 100%; gap: 6px; padding: 8px; box-sizing: border-box; }
-  #time { font-size: 28px; font-weight: 600; letter-spacing: 0.5px; }
-  #date { font-size: 12px; color: #A0A0B8; }
+  #time { font-size: var(--iappyx-text-xl); font-weight: var(--iappyx-weight-bold); letter-spacing: 0.5px; }
+  #date { font-size: var(--iappyx-text-sm); color: rgba(255,255,255,0.65); }
 </style>
 </head>
 <body>

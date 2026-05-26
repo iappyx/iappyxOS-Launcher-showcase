@@ -8,23 +8,23 @@
 <title>AdGuard Top Clients</title>
 <style>
   html, body { margin: 0; padding: 0; height: 100%; background: transparent; color: #ECECEC;
-               font-family: -apple-system, Roboto, sans-serif; overflow: hidden;
+               font-family: var(--iappyx-font); overflow: hidden;
                -webkit-user-select: none; user-select: none; }
   #root { display: flex; flex-direction: column; padding: 12px 14px; box-sizing: border-box;
           height: 100%; }
-  .title { color: #8E8E97; font-size: 10px; text-transform: uppercase;
+  .title { color: var(--iappyx-neutral); font-size: 10px; text-transform: uppercase;
            letter-spacing: 0.08em; margin-bottom: 8px; flex: 0 0 auto; }
-  .title b { color: #ECECEC; font-weight: 500; text-transform: none; letter-spacing: 0; }
+  .title b { color: #ECECEC; font-weight: var(--iappyx-weight-normal); text-transform: none; letter-spacing: 0; }
   #list { flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: 4px; }
   .row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 4px 0; }
   .row .ip { flex: 1; color: #ECECEC; font-family: "SF Mono", ui-monospace, monospace;
              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .row .count { color: #4FC3F7; font-variant-numeric: tabular-nums;
+  .row .count { color: var(--iappyx-data-1); font-variant-numeric: tabular-nums;
                 font-size: 11px; flex: 0 0 auto; }
   .bar { height: 2px; background: rgba(79,195,247,0.3); border-radius: 1px; margin-top: 2px; }
-  .bar-fill { height: 100%; background: #4FC3F7; border-radius: 1px; }
+  .bar-fill { height: 100%; background: var(--iappyx-data-1); border-radius: 1px; }
   .empty { display: flex; height: 100%; align-items: center; justify-content: center;
-           color: #8E8E97; font-size: 12px; text-align: center; padding: 18px; }
+           color: var(--iappyx-neutral); font-size: 12px; text-align: center; padding: 18px; }
 </style>
 </head>
 <body>

@@ -14,9 +14,9 @@ body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 input,textarea,[contenteditable]{-webkit-user-select:text;user-select:text}
 
 :root{
-  --bg:#0d0d1a;--surface:#1a1a2e;--surface2:#16213e;--accent:#0f3460;
-  --text:#eaeaea;--muted:rgba(255,255,255,0.45);--hi:#4FC3F7;
-  --success:#69F0AE;--error:#FF6B6B;--warn:#FFD166;--r:12px;--pill:50px;
+  --bg:var(--iappyx-background);--surface:var(--iappyx-surface);--surface2:#16213e;--accent:#0f3460;
+  --text:var(--iappyx-on-surface);--muted:var(--iappyx-neutral);--hi:var(--iappyx-primary);
+  --success:var(--iappyx-positive);--error:var(--iappyx-negative);--warn:var(--iappyx-warning);--r:12px;--pill:50px;
 }
 /* Body is a flex column so the nav (auto-height) and the active screen
    (flex:1) divide the viewport between them exactly. The previous layout
@@ -24,7 +24,7 @@ input,textarea,[contenteditable]{-webkit-user-select:text;user-select:text}
    51 px tall — but nav-btn padding makes it ~58 px, so the screen overran
    the viewport by ~7 px on every tab and the cell could vertically scroll
    that gap. Flex makes the math implicit. */
-body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;display:flex;flex-direction:column}
+body{font-family:var(--iappyx-font);background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden;display:flex;flex-direction:column}
 
 /* NAV */
 .nav{display:flex;background:var(--surface);border-bottom:1px solid rgba(255,255,255,0.07);position:sticky;top:0;z-index:100;flex-shrink:0}
@@ -152,7 +152,7 @@ body{font-family:-apple-system,sans-serif;background:var(--bg);color:var(--text)
 .toggle input:checked~.toggle-thumb{transform:translateX(20px)}
 .seg{display:flex;background:rgba(255,255,255,.07);border-radius:8px;padding:3px;gap:2px}
 .seg-btn{flex:1;padding:6px 4px;border-radius:6px;font-size:12px;font-weight:600;color:var(--muted);text-align:center;transition:all .15s;touch-action:manipulation}
-.seg-btn.active{background:var(--hi);color:var(--bg)}
+.seg-btn.active{background:var(--hi);color:var(--iappyx-on-primary)}
 .type-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:12px}
 .type-toggle-item{display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(255,255,255,.04);border-radius:8px}
 .type-toggle-label{flex:1;font-size:13px}

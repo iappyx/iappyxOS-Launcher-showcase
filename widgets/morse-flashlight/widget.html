@@ -8,31 +8,31 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 *:focus{outline:none}
-html,body{width:100%;height:100%;font-family:-apple-system,Roboto,sans-serif;overflow:hidden}
-body{background:rgba(10,10,20,0.92);backdrop-filter:blur(14px);border-radius:16px;color:#fff}
+html,body{width:100%;height:100%;font-family:var(--iappyx-font);overflow:hidden}
+body{background:var(--iappyx-surface);backdrop-filter:blur(14px);border-radius:16px;color:var(--iappyx-on-surface)}
 button{-webkit-appearance:none;background:none;border:none;color:inherit;font:inherit}
 input,textarea{-webkit-appearance:none;font:inherit}
 
 #root{display:flex;flex-direction:column;width:100%;height:100%;padding:clamp(6px,3%,14px);gap:clamp(4px,1.5%,10px)}
 
 .top-bar{display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-.title{font-size:clamp(11px,3.5vmin,15px);font-weight:700;letter-spacing:1px;color:#4FC3F7;text-transform:uppercase}
+.title{font-size:clamp(11px,3.5vmin,15px);font-weight:700;letter-spacing:1px;color:var(--iappyx-primary);text-transform:uppercase}
 .status{font-size:clamp(9px,2.5vmin,11px);display:flex;align-items:center;gap:4px}
-.dot-ok{width:6px;height:6px;border-radius:50%;background:#69F0AE;box-shadow:0 0 6px #69F0AE;flex-shrink:0}
-.dot-err{width:6px;height:6px;border-radius:50%;background:#FF6B6B;box-shadow:0 0 6px #FF6B6B;flex-shrink:0}
-.status-text{color:#A0A0B8;font-size:clamp(9px,2.3vmin,11px)}
+.dot-ok{width:6px;height:6px;border-radius:50%;background:var(--iappyx-positive);box-shadow:0 0 6px rgba(0,0,0,.28);flex-shrink:0}
+.dot-err{width:6px;height:6px;border-radius:50%;background:var(--iappyx-negative);box-shadow:0 0 6px rgba(0,0,0,.28);flex-shrink:0}
+.status-text{color:var(--iappyx-neutral);font-size:clamp(9px,2.3vmin,11px)}
 
 .input-row{display:flex;gap:6px;flex-shrink:0}
 #msgInput{flex:1;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:8px;
-  color:#fff;padding:6px 10px;font-size:clamp(11px,3vmin,14px);caret-color:#4FC3F7}
-#msgInput::placeholder{color:#555}
+  color:var(--iappyx-on-surface);padding:6px 10px;font-size:clamp(11px,3vmin,14px);caret-color:var(--iappyx-primary)}
+#msgInput::placeholder{color:var(--iappyx-neutral)}
 
 .btn-row{display:flex;gap:6px;flex-shrink:0}
 .btn{flex:1;border-radius:8px;padding:clamp(5px,1.8vmin,9px) 4px;font-size:clamp(10px,2.8vmin,13px);
   font-weight:700;letter-spacing:.8px;cursor:pointer;transition:opacity .1s,transform .08s}
 .btn:active{opacity:.75;transform:scale(.97)}
-.btn-flash{background:linear-gradient(135deg,#4FC3F7,#0288D1);color:#000}
-.btn-stop{background:linear-gradient(135deg,#FF6B6B,#c62828);color:#fff}
+.btn-flash{background:var(--iappyx-primary);color:var(--iappyx-on-primary)}
+.btn-stop{background:var(--iappyx-negative);color:#fff}
 .btn:disabled{opacity:.35;pointer-events:none}
 
 .morse-scroll{flex:1;overflow-y:auto;overflow-x:hidden;min-height:0}
@@ -43,15 +43,15 @@ input,textarea{-webkit-appearance:none;font:inherit}
 .morse-line{display:flex;flex-wrap:wrap;gap:4px 6px;padding:2px 0}
 .m-word{display:flex;gap:4px;align-items:flex-end;flex-wrap:wrap}
 .m-char{display:flex;flex-direction:column;align-items:center;gap:2px}
-.m-sym{font-size:clamp(10px,3vmin,15px);letter-spacing:1px;color:#A0A0B8;font-family:monospace;transition:color .1s}
-.m-ltr{font-size:clamp(7px,2vmin,10px);color:#555;text-transform:uppercase}
+.m-sym{font-size:clamp(10px,3vmin,15px);letter-spacing:1px;color:var(--iappyx-neutral);font-family:monospace;transition:color .1s}
+.m-ltr{font-size:clamp(7px,2vmin,10px);color:var(--iappyx-neutral);text-transform:uppercase}
 
 .m-char.active .m-sym{color:#FFD54F;text-shadow:0 0 8px #FFD54F}
-.m-char.active .m-ltr{color:#A0A0B8}
-.m-char.done .m-sym{color:#69F0AE}
-.m-char.done .m-ltr{color:#69F0AE88}
+.m-char.active .m-ltr{color:var(--iappyx-neutral)}
+.m-char.done .m-sym{color:var(--iappyx-positive)}
+.m-char.done .m-ltr{color:var(--iappyx-positive)}
 
-.sending-label{font-size:clamp(8px,2.2vmin,10px);color:#A0A0B8;flex-shrink:0;text-align:center;min-height:14px}
+.sending-label{font-size:clamp(8px,2.2vmin,10px);color:var(--iappyx-neutral);flex-shrink:0;text-align:center;min-height:14px}
 .sending-label span{color:#FFD54F;font-weight:700}
 
 .torch-glow{position:fixed;inset:0;border-radius:16px;pointer-events:none;opacity:0;
