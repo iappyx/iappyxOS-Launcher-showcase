@@ -120,9 +120,11 @@ Capability-gated bridges to self-hosted and third-party services. Once installed
 ## How to use
 
 1. Open [iappyxOS Launcher](https://github.com/iappyx/iappyxOS-Launcher) on your Android device
-2. Settings → Showcase
-3. Pick a category (widgets, wallpapers, transitions, icon filters, plugins)
+2. Swipe to the AI Command Bar page and pick the matching tab (Widgets, Wallpapers, Transitions, or Icon styles)
+3. Tap **Import** in the top bar → **Browse Showcase**
 4. Tap an entry → preview → install
+
+For **plugins**, open the Plugins screen (Settings → Plugins) and tap **Browse showcase** at the bottom.
 
 Everything here is also browsable directly: each folder contains the source HTML/JSON, ready to read or copy by hand.
 
